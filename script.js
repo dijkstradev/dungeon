@@ -1267,15 +1267,85 @@ function generateDungeon() {
     }
   });
 
-  rooms.forEach((room) => {
-    const decorCount = 2 + Math.floor(Math.random() * 4);
-    for (let i = 0; i < decorCount; i += 1) {
+  const spawnRoom = rooms[0];
+  const decorationCells = new Set();
+
+  function pickDecorationCell(room) {
+    let best = null;
+    let bestScore = -Infinity;
+    for (let attempt = 0; attempt < 28; attempt += 1) {
       const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
       const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+      const key = `${tileX},${tileY}`;
+      if (decorationCells.has(key)) continue;
+      if (Math.abs(tileX - spawnRoom.centerX) <= 1 && Math.abs(tileY - spawnRoom.centerY) <= 1) continue;
+      if (grid[tileY][tileX] === 0) continue;
+
+      const worldX = tileX * CELL_SIZE + CELL_SIZE / 2;
+      const worldY = tileY * CELL_SIZE + CELL_SIZE / 2;
+      let tooClose = false;
+      for (let d = decorations.length - 1; d >= 0; d -= 1) {
+        const other = decorations[d];
+        if (Math.hypot(other.x - worldX, other.y - worldY) < CELL_SIZE * 0.9) {
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+
+      let wallTouch = 0;
+      let openNeighbors = 0;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = tileX + dx;
+          const ny = tileY + dy;
+          const neighbor =
+            nx < 0 || ny < 0 || nx >= MAP_COLS || ny >= MAP_ROWS ? 0 : grid[ny][nx];
+          if (neighbor === 0) wallTouch += 1;
+          if (neighbor === 1 || neighbor === 2) openNeighbors += 1;
+        }
+      }
+      if (openNeighbors < 4) continue;
+
+      const adjacencyBonus = wallTouch * 2.2 + Math.max(openNeighbors - 4, 0);
+      const distanceFromCenter = Math.hypot(tileX - room.centerX, tileY - room.centerY);
+      const corridorPenalty = openNeighbors <= 5 ? 1.2 : 0;
+      const score = adjacencyBonus - corridorPenalty - distanceFromCenter * 0.15 + Math.random() * 0.8;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { tileX, tileY, worldX, worldY, key };
+      }
+    }
+    return best;
+  }
+
+  rooms.forEach((room) => {
+    const decorCount = 4 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < decorCount; i += 1) {
+      let spot = pickDecorationCell(room);
+      if (!spot) {
+        for (let attempt = 0; attempt < 16 && !spot; attempt += 1) {
+          const fallbackX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+          const fallbackY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+          const fallbackKey = `${fallbackX},${fallbackY}`;
+          if (decorationCells.has(fallbackKey)) continue;
+          if (Math.abs(fallbackX - spawnRoom.centerX) <= 1 && Math.abs(fallbackY - spawnRoom.centerY) <= 1) continue;
+          spot = {
+            tileX: fallbackX,
+            tileY: fallbackY,
+            worldX: fallbackX * CELL_SIZE + CELL_SIZE / 2,
+            worldY: fallbackY * CELL_SIZE + CELL_SIZE / 2,
+            key: fallbackKey,
+          };
+        }
+      }
+      if (!spot || decorationCells.has(spot.key)) continue;
+      decorationCells.add(spot.key);
       const type = DECOR_TYPES[Math.floor(Math.random() * DECOR_TYPES.length)];
       decorations.push({
-        x: tileX * CELL_SIZE + CELL_SIZE / 2,
-        y: tileY * CELL_SIZE + CELL_SIZE / 2,
+        x: spot.worldX,
+        y: spot.worldY,
         type,
         phase: Math.random() * Math.PI * 2,
         speed: 0.7 + Math.random() * 0.8,
@@ -1284,7 +1354,6 @@ function generateDungeon() {
     }
   });
 
-  const spawnRoom = rooms[0];
   return { grid, rooms, decorations, spawn: { x: spawnRoom.centerX, y: spawnRoom.centerY } };
 }
 
