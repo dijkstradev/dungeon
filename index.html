@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Dungeon Run</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="hud">
+        <a class="home-link" href="https://home.quickpixel.games/">Home</a>
+        <div class="status">
+          <span class="label">HP</span>
+          <span class="health">100</span>
+          <span class="label">AMMO</span>
+          <span class="ammo">030</span>
+          <span class="label">TIME</span>
+          <span class="timer">00:00</span>
+          <span class="label">KILLS</span>
+          <span class="kills">000</span>
+        </div>
+        <div class="controls">
+          WASD / ← → ↑ ↓ to move • Space/Tap Attack
+        </div>
+      </header>
+      <section class="playfield">
+        <canvas id="game-canvas" width="960" height="600"></canvas>
+        <div class="ground-line"></div>
+        <canvas id="minimap" width="180" height="180" aria-hidden="true"></canvas>
+        <div class="joystick" id="joystick">
+          <div class="joystick-thumb"></div>
+        </div>
+        <button class="attack-btn" id="attack-btn" aria-label="Attack"></button>
+      </section>
+      <section class="overlay overlay--hidden" id="game-over">
+        <div class="overlay-card">
+          <h1>Game Over</h1>
+          <p class="final-scoreboard">
+            <span class="label">TIME</span>
+            <span class="final-timer">00:00</span>
+            <span class="label">KILLS</span>
+            <span class="final-kills">000</span>
+            <span class="label">AMMO</span>
+            <span class="final-ammo">000</span>
+          </p>
+          <button class="btn" id="restart-btn">Try Again</button>
+          <button class="btn" id="share-btn">Download Share Image</button>
+          <div class="share-preview">
+            <canvas id="share-canvas" width="600" height="315" aria-hidden="true"></canvas>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer class="credits">
+      Survive the maze • Made with <span aria-hidden="true">❤️</span> by
+      <a href="https://x.com/dijkstradev" target="_blank" rel="noopener noreferrer">@dijkstradev</a>
+    </footer>
+    <script src="script.js" defer></script>
+  </body>
+</html>
