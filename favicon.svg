@@ -1,5 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="8" fill="#131313"/>
-  <circle cx="32" cy="32" r="24" fill="#1f1f1f" stroke="#f79d2a" stroke-width="4"/>
-  <path d="M32 16 L44 28 L38 28 L38 44 L26 44 L26 28 L20 28 Z" fill="#f79d2a" stroke="#2b1c05" stroke-width="3" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="100" fill="#0b0b0b"/>
+  <circle cx="32" cy="32" r="25" fill="url(#ring)" />
+  <g transform="translate(33 39)">
+    <rect x="-4.2" y="-0.8" width="6" height="14" rx="1.4" fill="url(#handleWood)"/>
+    <rect x="-3.35" y="-5" width="4.4" height="15" rx="2.0" fill="url(#gripWood)"/>
+    <path d="M0-8c-1 0-1.8 0.5-1.8 1.2s0.8 1.4 1.8 1.4 1.8-0.6 1.8-1.4-0.8-1.2-1.8-1.2z" fill="#342012" opacity="0.55"/>
+  </g>
+  <g transform="translate(26 26)">
+    <path d="M0-12c-4 3.6-4.6 9-2.8 12.6 1.6 3 5.4 4.6 5.4 7.6 0 2 0.4 4.8 0.4 4.8h5.6s0.4-2.8 0.4-4.8c0-3 3.8-4.6 5.4-7.6 1.4-2.6 0.8-7-3-10.6 1 5.2-3.2 7.6-4.4 7-1.2-0.6-0.6-5.6-1.4-7z" fill="url(#flame)"/>
+    <path d="M-0.8-8c-0.8 1.8-0.8 4 0 5.8 1.2 2.2 4 3.2 4 5 0 1.6-0.2 3.6-0.2 3.6h2.8s-0.2-2-0.2-3.6c0-1.8 2.8-2.8 4-5 0.8-1.4 1-3.6 0.2-5.4-0.6 3.2-2.8 4.4-3.6 3.8-0.8-0.4-0.4-3.8-1-4.4-0.8 1-1.8 2.8-2.8 1.8z" fill="url(#flameCore)"/>
+    <ellipse cx="-1.6" cy="-5" rx="1.0" ry="1.4" fill="rgba(255,255,255,0.35)"/>
+  </g>
+  <defs>
+    <radialGradient id="ring" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="scale(26)">
+      <stop offset="0" stop-color="#1d1d1d" />
+      <stop offset="0.65" stop-color="#151515" />
+      <stop offset="1" stop-color="#080808" />
+    </radialGradient>
+    <radialGradient id="flame" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16 12) scale(12 18)">
+      <stop offset="0" stop-color="#fff4c4"/>
+      <stop offset="0.3" stop-color="#ffd37a"/>
+      <stop offset="0.55" stop-color="#ff9b3d"/>
+      <stop offset="1" stop-color="#ff632e"/>
+    </radialGradient>
+    <radialGradient id="flameCore" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(8 6) scale(8 10)">
+      <stop offset="0" stop-color="#ffeab8"/>
+      <stop offset="0.6" stop-color="#ffa75c"/>
+      <stop offset="1" stop-color="#ff7a40"/>
+    </radialGradient>
+    <linearGradient id="handleWood" x1="0" y1="0" x2="0" y2="16" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5a351a"/>
+      <stop offset="1" stop-color="#3b2310"/>
+    </linearGradient>
+    <linearGradient id="gripWood" x1="0" y1="-6" x2="0" y2="1" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8d5b2b"/>
+      <stop offset="1" stop-color="#6b4320"/>
+    </linearGradient>
+  </defs>
 </svg>
