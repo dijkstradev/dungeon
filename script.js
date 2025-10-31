@@ -25,6 +25,7 @@ const infoOverlay = document.getElementById("info-overlay");
 const infoClose = document.getElementById("info-close");
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
 
+const BASE_PLAYER_MAX_HEALTH = 100;
 const STARTING_AMMO = 30;
 const PICKUP_BOB_SPEED = 0.005;
 const PICKUP_BOB_AMPLITUDE = 8;
@@ -40,7 +41,7 @@ const GUN_COOLDOWN_STEP = 30;
 const GUN_RANGE_STEP = 14;
 const GUN_COOLDOWN_MIN = 180;
 const ENEMY_SPAWN_FLASH = 520;
-const BASE_HUNGER_RATE = 0.72;
+const BASE_HUNGER_RATE = 0.34;
 const MEAT_COLOR = "#ff9b3d";
 const MAX_MUTATION_STAGE = 20;
 const ELITE_ENEMY_UNLOCK_MS = 5 * 60 * 1000;
@@ -202,8 +203,8 @@ const player = {
   y: spawnPoint.y * CELL_SIZE + CELL_SIZE / 2,
   radius: 18,
   speed: 240,
-  maxHealth: 100,
-  health: 100,
+  maxHealth: BASE_PLAYER_MAX_HEALTH,
+  health: BASE_PLAYER_MAX_HEALTH,
   damage: BASE_GUN_DAMAGE,
   attackCooldown: BASE_GUN_COOLDOWN,
   attackRange: BASE_GUN_RANGE,
@@ -305,10 +306,10 @@ const ENEMY_TYPES = [
   {
     id: "blightfang",
     behaviour: "chaser",
-    speed: 230,
+    speed: 210,
     speedGrowth: 0.55,
-    health: 110,
-    damage: 20,
+    health: 95,
+    damage: 16,
     color: "#ff8456",
     weight: 0.18,
     radius: 18,
@@ -320,19 +321,19 @@ const ENEMY_TYPES = [
     lungeRange: CELL_SIZE * 1.3,
     lungeCooldown: 2400,
     lungeDuration: 260,
-    lungeSpeedMultiplier: 3.15,
+    lungeSpeedMultiplier: 2.8,
     initialLungeDelayMultiplier: 0.7,
     lungeParticleColor: "#ffb37a",
     hasteThreshold: 0.45,
-    hasteMultiplier: 1.24,
+    hasteMultiplier: 1.18,
   },
   {
     id: "voidreaver",
     behaviour: "sentry",
-    speed: 190,
+    speed: 175,
     speedGrowth: 0.5,
-    health: 140,
-    damage: 26,
+    health: 120,
+    damage: 21,
     color: "#7d7bff",
     weight: 0.12,
     radius: 20,
@@ -344,19 +345,19 @@ const ENEMY_TYPES = [
     lungeRange: CELL_SIZE * 1.5,
     lungeCooldown: 2800,
     lungeDuration: 300,
-    lungeSpeedMultiplier: 3.0,
+    lungeSpeedMultiplier: 2.6,
     initialLungeDelayMultiplier: 0.75,
     lungeParticleColor: "#b6a5ff",
     hasteThreshold: 0.5,
-    hasteMultiplier: 1.18,
+    hasteMultiplier: 1.12,
   },
   {
     id: "doomclaw",
     behaviour: "brute",
-    speed: 160,
+    speed: 145,
     speedGrowth: 0.48,
-    health: 180,
-    damage: 32,
+    health: 150,
+    damage: 26,
     color: "#ff4d7a",
     weight: 0.14,
     radius: 22,
@@ -368,11 +369,11 @@ const ENEMY_TYPES = [
     lungeRange: CELL_SIZE * 1.45,
     lungeCooldown: 3200,
     lungeDuration: 340,
-    lungeSpeedMultiplier: 2.85,
+    lungeSpeedMultiplier: 2.5,
     initialLungeDelayMultiplier: 0.8,
     lungeParticleColor: "#ff6f9d",
     hasteThreshold: 0.5,
-    hasteMultiplier: 1.22,
+    hasteMultiplier: 1.15,
   },
 ];
 
@@ -400,7 +401,7 @@ let healthAccumulator = HEALTH_RESPAWN;
 const HEALTH_AMOUNT = 25;
 const MIN_PICKUP_DISTANCE = CELL_SIZE * 9;
 const PICKUP_LIFETIME = 60000;
-const MEAT_HUNGER_RESTORE = 22;
+const MEAT_HUNGER_RESTORE = 2;
 const HUNGER_MAX = 100;
 const MEAT_SPAWN_LIFETIME = 45000;
 const MEAT_HOVER_SCALE = 2.4;
@@ -416,6 +417,27 @@ let titanAccumulator = 0;
 const meatDrops = [];
 const meatUsedPositions = new Set();
 const MEAT_DROP_PROBABILITY = 0.58;
+const ENEMY_PREY_HEALTH_THRESHOLD = 0.3;
+const ENEMY_PREY_OPPORTUNITY_RANGE = CELL_SIZE * 4;
+const ENEMY_PREY_FEAST_HEAL = 60;
+const PREY_TYPES = [
+  { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.32 },
+  { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.26 },
+  { id: "burrower", speed: 140, health: 55, color: "#8cf29d", weight: 0.22 },
+  { id: "hootling", speed: 155, health: 48, color: "#b6ff9a", weight: 0.2 },
+];
+const PREY_SPAWN_INTERVAL = 8500;
+const MAX_PREY = 10;
+const PREY_IDLE_MIN = 1400;
+const PREY_IDLE_MAX = 3000;
+const PREY_FLEE_RANGE = CELL_SIZE * 3.2;
+const PREY_FLEE_SPEED_MULT = 1.25;
+const PREY_PATROL_DISTANCE = CELL_SIZE * 2.4;
+const PREY_PATROL_SPREAD = CELL_SIZE * 3.2;
+const PREY_MEAT_RESTORE = 4;
+const PREY_MEAT_COLOR = "#ffb97f";
+const preyList = [];
+let preyAccumulator = PREY_SPAWN_INTERVAL;
 
 function updateCanvasSize() {
   const dpr = window.devicePixelRatio || 1;
@@ -441,6 +463,7 @@ function resetGame() {
   updateCanvasSize();
   player.x = spawnPoint.x * CELL_SIZE + CELL_SIZE / 2;
   player.y = spawnPoint.y * CELL_SIZE + CELL_SIZE / 2;
+  player.maxHealth = BASE_PLAYER_MAX_HEALTH;
   player.health = player.maxHealth;
   player.ammo = STARTING_AMMO;
   player.damage = BASE_GUN_DAMAGE;
@@ -470,6 +493,8 @@ function resetGame() {
   ammoAccumulator = AMMO_RESPAWN;
   healthAccumulator = HEALTH_RESPAWN;
   titanAccumulator = 0;
+  preyList.length = 0;
+  preyAccumulator = PREY_SPAWN_INTERVAL;
   state.running = true;
   state.over = false;
   state.startedAt = performance.now();
@@ -490,6 +515,9 @@ function resetGame() {
   createAmmoDrop();
   createHealthDrop();
   createTitanEnemy();
+  for (let i = 0; i < Math.min(4, MAX_PREY); i += 1) {
+    createPrey();
+  }
   updateHUD();
 }
 
@@ -618,6 +646,17 @@ function pickEnemyType() {
   return pool[0] || ENEMY_TYPES[0];
 }
 
+function pickPreyType() {
+  const totalWeight = PREY_TYPES.reduce((sum, type) => sum + type.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const type of PREY_TYPES) {
+    if ((roll -= type.weight) <= 0) {
+      return type;
+    }
+  }
+  return PREY_TYPES[0];
+}
+
 function createAmmoDrop() {
   const drop = generatePickupLocation();
   ammoUsedPositions.add(drop.key);
@@ -646,13 +685,39 @@ function createHealthDrop() {
   });
 }
 
-function scheduleMeatDrop(enemy, color, guaranteed = false) {
-  const willDrop = guaranteed || Math.random() < MEAT_DROP_PROBABILITY;
-  if (!willDrop) return;
-  createMeatDrop(enemy.x, enemy.y, color || MEAT_COLOR);
+function createPrey() {
+  if (preyList.length >= MAX_PREY) return;
+  const template = pickPreyType();
+  const room = dungeonRooms[Math.floor(Math.random() * dungeonRooms.length)];
+  const padding = 2;
+  const tileX = room.x + padding + Math.floor(Math.random() * Math.max(1, room.width - padding * 2));
+  const tileY = room.y + padding + Math.floor(Math.random() * Math.max(1, room.height - padding * 2));
+  const prey = {
+    x: tileX * CELL_SIZE + CELL_SIZE / 2,
+    y: tileY * CELL_SIZE + CELL_SIZE / 2,
+    radius: 14,
+    speed: template.speed,
+    maxHealth: template.health,
+    health: template.health,
+    color: template.color,
+    variant: template.id,
+    state: "idle",
+    idleTimer: PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN),
+    spawnTimer: ENEMY_SPAWN_FLASH,
+    animTimer: 0,
+    targetX: null,
+    targetY: null,
+  };
+  preyList.push(prey);
 }
 
-function createMeatDrop(baseX, baseY, color = MEAT_COLOR) {
+function scheduleMeatDrop(enemy, color, guaranteed = false, options = {}) {
+  const willDrop = guaranteed || Math.random() < MEAT_DROP_PROBABILITY;
+  if (!willDrop) return;
+  createMeatDrop(enemy.x, enemy.y, color || MEAT_COLOR, options);
+}
+
+function createMeatDrop(baseX, baseY, color = MEAT_COLOR, options = {}) {
   let spawnX = baseX;
   let spawnY = baseY;
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -684,12 +749,15 @@ function createMeatDrop(baseX, baseY, color = MEAT_COLOR) {
     bobOffset: 0,
     color,
     key: finalKey,
-    restore: MEAT_HUNGER_RESTORE,
+    restore: options.restore ?? MEAT_HUNGER_RESTORE,
+    mutates: options.mutates !== undefined ? options.mutates : true,
   });
 }
 
 function updateHUD() {
-  healthEl.textContent = Math.max(player.health, 0).toString().padStart(3, " ");
+  const currentHealth = Math.max(Math.round(player.health), 0);
+  const maxHealth = Math.round(player.maxHealth);
+  healthEl.textContent = `${currentHealth}/${maxHealth}`;
   ammoEl.textContent = player.ammo.toString().padStart(3, " ");
   killsEl.textContent = state.kills.toString().padStart(3, "0");
   if (hungerEl) hungerEl.textContent = Math.floor(player.hunger).toString().padStart(3, " ");
@@ -706,18 +774,20 @@ function showAchievement(text) {
   achievementTimer = 10000;
 }
 
-function eatMeat(amount = MEAT_HUNGER_RESTORE) {
+function eatMeat(amount = MEAT_HUNGER_RESTORE, mutates = true) {
   player.hunger = Math.max(0, player.hunger - amount);
-  player.hungerEaten += 1;
-  const nextStage = Math.floor(player.hungerEaten / MUTATION_EAT_INTERVAL);
-  const clampedStage = Math.min(nextStage, MAX_MUTATION_STAGE);
-  if (clampedStage > player.mutationStage) {
-    player.mutationStage = clampedStage;
-    const milestoneMeals = Math.min(
-      clampedStage * MUTATION_EAT_INTERVAL,
-      MAX_MUTATION_STAGE * MUTATION_EAT_INTERVAL,
-    );
-    showAchievement(`You feel different... (${milestoneMeals} meals)`);
+  if (mutates) {
+    player.hungerEaten += 1;
+    const nextStage = Math.floor(player.hungerEaten / MUTATION_EAT_INTERVAL);
+    const clampedStage = Math.min(nextStage, MAX_MUTATION_STAGE);
+    if (clampedStage > player.mutationStage) {
+      player.mutationStage = clampedStage;
+      const milestoneMeals = Math.min(
+        clampedStage * MUTATION_EAT_INTERVAL,
+        MAX_MUTATION_STAGE * MUTATION_EAT_INTERVAL,
+      );
+      showAchievement(`You feel different... (${milestoneMeals} meals)`);
+    }
   }
   updateHUD();
 }
@@ -775,6 +845,10 @@ function handleGunUpgrade() {
     player.attackCooldown = newCooldown;
     player.attackRange = newRange;
     player.ammo = Math.max(player.ammo, STARTING_AMMO);
+    const prevMaxHealth = player.maxHealth;
+    player.maxHealth += 10;
+    const healthGain = player.maxHealth - prevMaxHealth;
+    player.health = Math.min(player.health + healthGain, player.maxHealth);
 
     const damageGain = newDamage - prevDamage;
     const fireRateGain =
@@ -783,8 +857,9 @@ function handleGunUpgrade() {
     const levelLabel = `MK-${String(player.gunLevel + 1).padStart(2, "0")}`;
     const prefix = player.gunLevel === 1 ? "5 Kills! " : "";
     showAchievement(
-      `${prefix}Shotgun upgrade ${levelLabel}! Damage +${damageGain}, fire rate +${Math.max(fireRateGain, 0)}%, range +${rangeGain}`,
+      `${prefix}Shotgun upgrade ${levelLabel}! Damage +${damageGain}, fire rate +${Math.max(fireRateGain, 0)}%, range +${rangeGain}, max HP +${healthGain}`,
     );
+    updateHUD();
   }
 }
 
@@ -886,12 +961,43 @@ function update(delta) {
     createTitanEnemy();
   }
 
+  preyAccumulator += delta;
+  if (preyAccumulator >= PREY_SPAWN_INTERVAL) {
+    preyAccumulator = 0;
+    if (preyList.length < MAX_PREY) {
+      createPrey();
+    }
+  }
+
+  updatePrey(delta);
+
   enemies.forEach((enemy) => {
-    const dx = player.x - enemy.x;
-    const dy = player.y - enemy.y;
-    const distance = Math.hypot(dx, dy) || 1;
+    const dxPlayer = player.x - enemy.x;
+    const dyPlayer = player.y - enemy.y;
+    const distanceToPlayer = Math.hypot(dxPlayer, dyPlayer) || 1;
     const isTitan = enemy.behaviour === "titan";
     const hasLunge = enemy.lungeRange !== undefined && enemy.lungeCooldownBase;
+    const nearestPreyInfo = getNearestPrey(enemy.x, enemy.y);
+    const healthRatio = enemy.health / enemy.maxHealth;
+
+    let targetType = "player";
+    let targetEntity = player;
+    let targetDx = dxPlayer;
+    let targetDy = dyPlayer;
+    let distance = distanceToPlayer;
+    let hasTargetSight = hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
+
+    if (nearestPreyInfo) {
+      const preyDistance = nearestPreyInfo.distance;
+      if (healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD || preyDistance <= ENEMY_PREY_OPPORTUNITY_RANGE) {
+        targetType = "prey";
+        targetEntity = nearestPreyInfo.prey;
+        targetDx = targetEntity.x - enemy.x;
+        targetDy = targetEntity.y - enemy.y;
+        distance = preyDistance || 1;
+        hasTargetSight = hasLineOfSight(enemy.x, enemy.y, targetEntity.x, targetEntity.y);
+      }
+    }
 
     if (enemy.spawnTimer) {
       enemy.spawnTimer = Math.max(0, enemy.spawnTimer - delta);
@@ -904,22 +1010,15 @@ function update(delta) {
       enemy.lungeCooldownTimer = Math.max(0, (enemy.lungeCooldownTimer || 0) - delta);
       if (enemy.isLunging) {
         enemy.lungeTimer = Math.max(0, (enemy.lungeTimer || 0) - delta);
-        if (enemy.lungeTimer === 0) {
-          enemy.isLunging = false;
-        }
+        if (enemy.lungeTimer === 0) enemy.isLunging = false;
       }
-      if (
-        !enemy.isLunging &&
-        enemy.lungeCooldownTimer === 0 &&
-        distance < enemy.lungeRange &&
-        hasLineOfSight(enemy.x, enemy.y, player.x, player.y)
-      ) {
+      if (!enemy.isLunging && enemy.lungeCooldownTimer === 0 && distance < enemy.lungeRange && hasTargetSight) {
         enemy.isLunging = true;
         enemy.lungeTimer = enemy.lungeDuration || 260;
         enemy.lungeCooldownTimer = enemy.lungeCooldownBase;
         const len = distance || 1;
-        enemy.lungeDirX = dx / len;
-        enemy.lungeDirY = dy / len;
+        enemy.lungeDirX = targetDx / len;
+        enemy.lungeDirY = targetDy / len;
         spawnParticles(
           enemy.x,
           enemy.y,
@@ -940,10 +1039,11 @@ function update(delta) {
       enemy.behaviour === "chaser" ||
       enemy.behaviour === "brute" ||
       enemy.behaviour === "titan" ||
+      enemy.behaviour === "sentry" ||
       enemy.state === "chase"
     ) {
-      let dirX = dx / distance;
-      let dirY = dy / distance;
+      let dirX = targetDx / distance;
+      let dirY = targetDy / distance;
       let moveSpeed = enemy.speed;
       let shrink = enemy.collisionShrink ?? (isTitan ? 0.6 : 0.65);
       if (enemy.isLunging) {
@@ -964,13 +1064,15 @@ function update(delta) {
 
       if (
         enemy.behaviour === "sentry" &&
-        (!hasLineOfSight(enemy.x, enemy.y, player.x, player.y) || distance > SENTRY_LOSE_RANGE)
+        (!hasTargetSight ||
+          distance > SENTRY_LOSE_RANGE * (targetType === "player" ? 1 : 0.85))
       ) {
         enemy.state = "patrol";
         assignPatrolTarget(enemy);
       }
     } else {
-      const seesPlayer = distance <= SENTRY_VISION_RANGE && hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
+      const seesPlayer =
+        distanceToPlayer <= SENTRY_VISION_RANGE && hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
       if (seesPlayer) {
         enemy.state = "chase";
       } else {
@@ -1010,8 +1112,10 @@ function update(delta) {
       enemy.stuckTimer = Math.max(0, enemy.stuckTimer - delta);
     }
 
+    attemptConsumePrey(enemy);
+
     enemy.damageCooldown = Math.max(0, enemy.damageCooldown - delta);
-    if (distance < enemy.radius + player.radius + 4 && enemy.damageCooldown === 0) {
+    if (distanceToPlayer < enemy.radius + player.radius + 4 && enemy.damageCooldown === 0) {
       player.health -= enemy.damage;
       enemy.damageCooldown = 700;
       spawnParticles(player.x, player.y, "#f45d5d");
@@ -1093,7 +1197,7 @@ function update(delta) {
     }
     const distance = Math.hypot(drop.x - player.x, drop.y - player.y);
     if (distance < drop.radius + player.radius) {
-      eatMeat(drop.restore || MEAT_HUNGER_RESTORE);
+      eatMeat(drop.restore || MEAT_HUNGER_RESTORE, drop.mutates !== false);
       spawnParticles(drop.x, drop.y, drop.color || MEAT_COLOR, 120, 18);
       meatUsedPositions.delete(drop.key);
       meatDrops.splice(i, 1);
@@ -1114,6 +1218,69 @@ function update(delta) {
   updateHUD();
 }
 
+function updatePrey(delta) {
+  const deltaSeconds = delta / 1000;
+  preyList.forEach((prey) => {
+    prey.animTimer = (prey.animTimer + delta) % 1000;
+    if (prey.spawnTimer) {
+      prey.spawnTimer = Math.max(0, prey.spawnTimer - delta);
+    }
+    let avoidX = 0;
+    let avoidY = 0;
+    const playerDist = Math.hypot(player.x - prey.x, player.y - prey.y);
+    if (playerDist < PREY_FLEE_RANGE) {
+      const inv = 1 / Math.max(playerDist, 1);
+      avoidX += (prey.x - player.x) * inv;
+      avoidY += (prey.y - player.y) * inv;
+    }
+    enemies.forEach((enemy) => {
+      const dist = Math.hypot(enemy.x - prey.x, enemy.y - prey.y);
+      if (dist < PREY_FLEE_RANGE * 1.15) {
+        const inv = 1 / Math.max(dist, 1);
+        avoidX += (prey.x - enemy.x) * inv;
+        avoidY += (prey.y - enemy.y) * inv;
+      }
+    });
+    if (avoidX !== 0 || avoidY !== 0) {
+      const len = Math.hypot(avoidX, avoidY) || 1;
+      const dirX = avoidX / len;
+      const dirY = avoidY / len;
+      stepEntity(prey, dirX, dirY, prey.speed * PREY_FLEE_SPEED_MULT, deltaSeconds, 0.6);
+      prey.state = "flee";
+      prey.idleTimer = PREY_IDLE_MIN;
+      return;
+    }
+    if (prey.state === "flee") {
+      prey.state = "idle";
+      prey.idleTimer = PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN);
+      prey.targetX = null;
+      prey.targetY = null;
+    }
+    if (prey.state === "idle") {
+      prey.idleTimer -= delta;
+      if (prey.idleTimer <= 0) {
+        setPreyPatrolTarget(prey);
+        prey.state = "patrol";
+      }
+    } else if (prey.state === "patrol") {
+      if (!prey.targetX || !prey.targetY) {
+        setPreyPatrolTarget(prey);
+      }
+      const dx = prey.targetX - prey.x;
+      const dy = prey.targetY - prey.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (dist < 12) {
+        prey.state = "idle";
+        prey.idleTimer = PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN);
+        prey.targetX = null;
+        prey.targetY = null;
+      } else {
+        stepEntity(prey, dx / dist, dy / dist, prey.speed * 0.8, deltaSeconds, 0.62);
+      }
+    }
+  });
+}
+
 function attack() {
   if (state.paused || !state.running) return;
   const now = performance.now();
@@ -1127,6 +1294,18 @@ function attack() {
     const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
     if (distance <= player.attackRange) enemy.health -= player.damage;
   });
+  for (let i = preyList.length - 1; i >= 0; i -= 1) {
+    const prey = preyList[i];
+    const distance = Math.hypot(prey.x - player.x, prey.y - player.y);
+    if (distance <= player.attackRange + prey.radius) {
+      prey.health -= player.damage;
+      if (prey.health <= 0) {
+        spawnParticles(prey.x, prey.y, prey.color || "#7befa2", 120, 12);
+        scheduleMeatDrop(prey, PREY_MEAT_COLOR, false, { restore: PREY_MEAT_RESTORE, mutates: false });
+        preyList.splice(i, 1);
+      }
+    }
+  }
   updateHUD();
 }
 
@@ -1160,6 +1339,7 @@ function draw() {
   drawAmmo(cameraX, cameraY);
   drawHealth(cameraX, cameraY);
   drawMeat(cameraX, cameraY);
+  drawPrey(cameraX, cameraY);
   drawEnemies(cameraX, cameraY);
   drawPlayer(cameraX, cameraY);
   drawParticles(cameraX, cameraY);
@@ -1189,6 +1369,14 @@ function drawMeat(offsetX, offsetY) {
     const screenX = drop.x - offsetX;
     const screenY = drop.y - offsetY;
     drawMeatSprite(screenX, screenY, drop);
+  });
+}
+
+function drawPrey(offsetX, offsetY) {
+  preyList.forEach((prey) => {
+    const screenX = prey.x - offsetX;
+    const screenY = prey.y - offsetY;
+    drawPreySprite(prey, screenX, screenY);
   });
 }
 
@@ -1945,12 +2133,73 @@ function drawPlayerSprite(x, y, frame, facing, shooting) {
   ctx.restore();
 }
 
+function drawPreySprite(prey, x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+  const spawnProgress = prey.spawnTimer ? prey.spawnTimer / ENEMY_SPAWN_FLASH : 0;
+  if (spawnProgress > 0) {
+    const pulse = Math.sin((1 - spawnProgress) * Math.PI * 2 + animationTime * 0.01) * 5;
+    ctx.save();
+    ctx.globalAlpha = 0.35 + 0.4 * spawnProgress;
+    ctx.lineWidth = 2.6 - spawnProgress * 1.4;
+    ctx.strokeStyle = `rgba(124, 255, 162, ${0.5 * spawnProgress + 0.2})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, prey.radius * 0.8 + (1 - spawnProgress) * prey.radius * 0.6 + pulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.scale(2.4, 2.4);
+  ctx.fillStyle = "rgba(0,0,0,0.32)";
+  ctx.beginPath();
+  ctx.ellipse(0, 2.2, 2.6, 1.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = prey.color || "#7befa2";
+  const wobble = Math.sin((prey.animTimer || 0) / 18) * 0.12;
+  ctx.beginPath();
+  ctx.moveTo(-1.8, -1.4);
+  ctx.quadraticCurveTo(0, -2.4 - wobble, 1.8, -1.4);
+  ctx.quadraticCurveTo(2.2, 0.6 + wobble, 0, 2.0);
+  ctx.quadraticCurveTo(-2.2, 0.6 - wobble, -1.8, -1.4);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(-1.1, -0.6, 0.7, 0.7);
+  ctx.fillRect(0.4, -0.6, 0.7, 0.7);
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(-0.9, -0.45, 0.3, 0.3);
+  ctx.fillRect(0.55, -0.45, 0.3, 0.3);
+
+  ctx.fillStyle = "#3c6a36";
+  ctx.beginPath();
+  ctx.moveTo(-1.6, 0.4);
+  ctx.quadraticCurveTo(0, 1.6 + wobble, 1.6, 0.4);
+  ctx.quadraticCurveTo(0.2, 2.4, -1.6, 0.4);
+  ctx.fill();
+
+  ctx.restore();
+
+  const barWidth = 40;
+  const barHeight = 5;
+  const healthRatio = Math.max(prey.health / prey.maxHealth, 0);
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(x - barWidth / 2, y - 32, barWidth, barHeight);
+  ctx.fillStyle = "#66df81";
+  ctx.fillRect(x - barWidth / 2, y - 32, barWidth * healthRatio, barHeight);
+}
+
 function drawEnemySprite(enemy, offsetX, offsetY) {
   const x = enemy.x - offsetX;
   const y = enemy.y - offsetY;
   const scale =
     enemy.drawScale ??
-    (enemy.behaviour === "titan" ? 4.4 : enemy.behaviour === "brute" ? 3.2 : 2.6);
+    (enemy.behaviour === "titan"
+      ? 4.4
+      : enemy.behaviour === "brute"
+        ? 3.2
+        : enemy.behaviour === "sentry"
+          ? 3.0
+          : 2.6);
   const spawnProgress = enemy.spawnTimer ? enemy.spawnTimer / ENEMY_SPAWN_FLASH : 0;
   const spawnColor = hexToRgb(enemy.color || "#f25858");
   ctx.save();
@@ -1979,10 +2228,22 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
   ctx.beginPath();
   const shadowWidth =
     enemy.shadowWidth ??
-    (enemy.behaviour === "titan" ? 4.6 : enemy.behaviour === "brute" ? 3.4 : 3.0);
+    (enemy.behaviour === "titan"
+      ? 4.6
+      : enemy.behaviour === "brute"
+        ? 3.4
+        : enemy.behaviour === "sentry"
+          ? 3.2
+          : 3.0);
   const shadowHeight =
     enemy.shadowHeight ??
-    (enemy.behaviour === "titan" ? 1.8 : enemy.behaviour === "brute" ? 1.4 : 1.2);
+    (enemy.behaviour === "titan"
+      ? 1.8
+      : enemy.behaviour === "brute"
+        ? 1.4
+        : enemy.behaviour === "sentry"
+          ? 1.25
+          : 1.2);
   ctx.ellipse(0, 2.4, shadowWidth, shadowHeight, 0, 0, Math.PI * 2);
   ctx.fill();
 
@@ -2164,6 +2425,11 @@ function drawMinimap() {
     minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
   });
 
+  preyList.forEach((prey) => {
+    minimapCtx.fillStyle = "#9bff8a";
+    minimapCtx.fillRect(prey.x * scaleX - 3, prey.y * scaleY - 3, 6, 6);
+  });
+
   enemies.forEach((enemy) => {
     minimapCtx.fillStyle = enemy.color || "#f45d5d";
     minimapCtx.fillRect(enemy.x * scaleX - 3, enemy.y * scaleY - 3, 6, 6);
@@ -2181,7 +2447,7 @@ function drawCanvasHUD() {
   ctx.strokeRect(12, 12, 240, 74);
   ctx.fillStyle = "#f2f2f2";
   ctx.font = "12px 'Press Start 2P', monospace";
-  ctx.fillText(`HP ${Math.max(player.health, 0).toString().padStart(3, "0")}`, 24, 32);
+  ctx.fillText(`HP ${Math.round(player.health)}/${Math.round(player.maxHealth)}`, 24, 32);
   ctx.fillText(`AM ${player.ammo.toString().padStart(3, "0")}`, 24, 52);
   ctx.fillText(`HN ${Math.floor(player.hunger).toString().padStart(3, "0")}`, 120, 32);
   const elapsed = state.over
@@ -2192,6 +2458,33 @@ function drawCanvasHUD() {
   ctx.fillText(`TM ${minutes}:${seconds}`, 24, 72);
   ctx.fillText(`KL ${state.kills.toString().padStart(3, "0")}`, 160, 52);
   ctx.restore();
+}
+
+function getNearestPrey(x, y) {
+  let closest = null;
+  let closestDistance = Infinity;
+  for (let i = 0; i < preyList.length; i += 1) {
+    const prey = preyList[i];
+    const distance = Math.hypot(prey.x - x, prey.y - y);
+    if (distance < closestDistance) {
+      closest = prey;
+      closestDistance = distance;
+    }
+  }
+  return closest ? { prey: closest, distance: closestDistance } : null;
+}
+
+function attemptConsumePrey(enemy) {
+  for (let i = preyList.length - 1; i >= 0; i -= 1) {
+    const prey = preyList[i];
+    const distance = Math.hypot(prey.x - enemy.x, prey.y - enemy.y);
+    if (distance < enemy.radius + prey.radius + 6) {
+      spawnParticles(prey.x, prey.y, prey.color || "#7befa2", 120, 12);
+      enemy.health = Math.min(enemy.maxHealth, enemy.health + ENEMY_PREY_FEAST_HEAL);
+      preyList.splice(i, 1);
+      break;
+    }
+  }
 }
 
 function spawnParticles(x, y, colorHex, spread = 120, count = 12) {
@@ -2466,6 +2759,22 @@ function assignPatrolTarget(enemy) {
   const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
   enemy.targetX = tileX * CELL_SIZE + CELL_SIZE / 2;
   enemy.targetY = tileY * CELL_SIZE + CELL_SIZE / 2;
+}
+
+function setPreyPatrolTarget(prey) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = PREY_PATROL_DISTANCE + Math.random() * PREY_PATROL_SPREAD;
+    const candidateX = prey.x + Math.cos(angle) * distance;
+    const candidateY = prey.y + Math.sin(angle) * distance;
+    if (isWalkable(candidateX, candidateY, prey.radius)) {
+      prey.targetX = candidateX;
+      prey.targetY = candidateY;
+      return;
+    }
+  }
+  prey.targetX = prey.x;
+  prey.targetY = prey.y;
 }
 
 function hasLineOfSight(ax, ay, bx, by) {
