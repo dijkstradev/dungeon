@@ -14,8 +14,8 @@
         <div class="status">
           <span class="label">HP</span>
           <span class="health">100</span>
-          <span class="label">AMMO</span>
-          <span class="ammo">030</span>
+          <span class="label">MANA</span>
+          <span class="mana">030</span>
           <span class="label">TIME</span>
           <span class="timer">00:00</span>
           <span class="label">KILLS</span>
@@ -24,7 +24,7 @@
           <span class="hunger">000</span>
         </div>
         <div class="controls">
-          WASD/Arrow Keys to move . Space to Shoot
+          WASD/Arrow Keys to move . Space to Blast
         </div>
         <button class="hud-btn info-btn" id="info-btn" type="button" aria-haspopup="dialog" aria-controls="info-overlay" aria-expanded="false">
           Info
@@ -73,13 +73,14 @@
               <li>
                 <span class="guide-icon" aria-hidden="true">
                   <svg width="32" height="32" viewBox="0 0 32 32">
-                    <rect x="6" y="16" width="20" height="10" fill="#1f1f1f"/>
-                    <rect x="8" y="18" width="16" height="6" fill="#58351a"/>
-                    <rect x="10" y="20" width="12" height="8" fill="#c16a28"/>
-                    <rect x="12" y="22" width="8" height="4" fill="#ffd27b"/>
+                    <rect x="13" y="6" width="6" height="4" fill="#8f5a2e"/>
+                    <rect x="12" y="10" width="8" height="3" fill="#cfd9ff" rx="1.5"/>
+                    <path d="M10 11c-2 4-1.5 10 2.2 12.6 2.1 1.5 5.5 1.5 7.6 0C23.5 21 24 15 22 11c-3.3-1.8-8.7-1.8-12 0z" fill="#dfe6ff"/>
+                    <path d="M11.4 13c-1.3 2.7-1 6.6 1.4 8.3 1.7 1.2 4.3 1.2 6 0 2.5-1.7 2.7-5.6 1.4-8.3-2.2-1.2-6.6-1.2-8.8 0z" fill="#2d5bff"/>
+                    <path d="M13 14.2c-.8 1.6-.6 3.9.8 4.9 1 .7 2.5.7 3.5 0 1.4-1 1.6-3.3.8-4.9-1.3-.7-3.8-.7-5.1 0z" fill="#74b0ff" opacity=".65"/>
                   </svg>
                 </span>
-                <span class="guide-text">Ammo crates add 5 shells and respawn across the dungeon—keep moving so you do not run dry.</span>
+                <span class="guide-text">Mana vials add 5 mana and respawn around the dungeon—keep exploring so you do not run dry.</span>
               </li>
               <li>
                 <span class="guide-icon" aria-hidden="true">
@@ -200,30 +201,38 @@
             </ul>
           </section>
           <section class="info-section">
+            <h3>Cave Wildlife</h3>
+            <ul>
+              <li>Spritelings: tiny glow-sprites that flock together—their packs scatter fast, so steer monsters away if you want them to survive.</li>
+              <li>Boulderbacks: hulking loners that plod through the halls—use them as moving cover but remember monsters will feast on them if you do not intervene.</li>
+              <li>Scamper, Glider, Burrower, and Hootling: the familiar foragers who flee on sight. If you hunt them, their meat restores 4 hunger without mutating you.</li>
+            </ul>
+          </section>
+          <section class="info-section">
             <h3>Survival Mechanics</h3>
             <ul>
               <li>Hunger climbs quickly—if it hits 100 you perish. Meat restores 2 hunger, so keep hunting for fresh drops.</li>
               <li>Every 5 meals mutates you further. Expect new limbs, eyes, and aura all the way to the 100-meal cap.</li>
               <li>Elite monsters awaken after 5 minutes. Their lunges are faster and reach farther—stay near cover.</li>
-              <li>Shotgun upgrades reset ammo to 30, boost range, damage, and cadence, and add +10 max HP each time.</li>
-              <li>Docile prey wander the halls: scare them off to keep them alive, or harvest them for non-mutating meat (+4 hunger) when you’re desperate.</li>
+              <li>Staff upgrades reset mana to 30, boost range, damage, and cadence, and add +10 max HP each time.</li>
+              <li>Docile prey now range from fragile spritelings to lone boulderbacks—protect them to deny enemy heals, or harvest them for non-mutating meat (+4 hunger) when you’re desperate.</li>
               <li>Injured monsters hunt prey first—deny them by defending the critters or watch enemies heal mid-fight.</li>
             </ul>
           </section>
           <section class="info-section">
-            <h3>Shotgun Upgrades</h3>
+            <h3>Staff Upgrades</h3>
             <p>
-              After your first 5 kills and every 15 kills after that, your shotgun evolves: damage climbs, fire rate
-              tightens, and shells fan farther. Watch the banner so you know when the next power spike hits.
+              After your first 5 kills and every 15 kills after that, your staff evolves: damage climbs, cast cadence
+              tightens, and arcane reach extends. Watch the banner so you know when the next power spike hits.
             </p>
           </section>
           <section class="info-section">
             <h3>Tips</h3>
             <ul>
               <li>Use the minimap to track pickups, enemies, and rooms you have not cleared.</li>
-              <li>Mobile: drag the virtual stick to move and tap to fire. Desktop: WASD/arrow keys plus Space/Enter.</li>
+              <li>Mobile: drag the virtual stick to move and tap to cast. Desktop: WASD/arrow keys plus Space/Enter to blast.</li>
               <li>Line of sight matters—break contact with walls to shake sentries and set ambushes.</li>
-              <li>Ammo and health spawn far from you; roam to stay supplied and avoid getting cornered.</li>
+              <li>Mana and health spawn far from you; roam to stay supplied and avoid getting cornered.</li>
               <li>Keep hunger in check—carry meat back-to-back for relief, but note how it changes you.</li>
             </ul>
           </section>

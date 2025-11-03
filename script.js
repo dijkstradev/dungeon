@@ -1,7 +1,7 @@
 const canvas = document.getElementById("game-canvas");
 const ctx = canvas.getContext("2d");
 const healthEl = document.querySelector(".health");
-const ammoEl = document.querySelector(".ammo");
+const manaEl = document.querySelector(".mana");
 const timerEl = document.querySelector(".timer");
 const killsEl = document.querySelector(".kills");
 const hungerEl = document.querySelector(".hunger");
@@ -26,7 +26,7 @@ const infoClose = document.getElementById("info-close");
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
 
 const BASE_PLAYER_MAX_HEALTH = 100;
-const STARTING_AMMO = 30;
+const STARTING_MANA = 30;
 const PICKUP_BOB_SPEED = 0.005;
 const PICKUP_BOB_AMPLITUDE = 8;
 const DECORATION_SCALE = 3.8;
@@ -209,8 +209,8 @@ const player = {
   attackCooldown: BASE_GUN_COOLDOWN,
   attackRange: BASE_GUN_RANGE,
   lastAttack: 0,
-  ammo: STARTING_AMMO,
-  maxAmmo: 10000000,
+  mana: STARTING_MANA,
+  maxMana: 10000000,
   frame: 0,
   animTimer: 0,
   facingX: 1,
@@ -222,6 +222,8 @@ const player = {
   hungerRate: BASE_HUNGER_RATE,
   hungerEaten: 0,
   mutationStage: 0,
+  lastFacingX: 0,
+  lastFacingY: 1,
 };
 
 const state = {
@@ -391,9 +393,9 @@ const TITAN_LUNGE_COOLDOWN = 3000;
 const TITAN_LUNGE_DURATION = 420;
 const TITAN_LUNGE_SPEED_MULT = 3.6;
 
-const ammoDrops = [];
-const AMMO_RESPAWN = 9000;
-let ammoAccumulator = AMMO_RESPAWN;
+const manaDrops = [];
+const MANA_RESPAWN = 9000;
+let manaAccumulator = MANA_RESPAWN;
 
 const healthDrops = [];
 const HEALTH_RESPAWN = 15000;
@@ -410,7 +412,7 @@ const HUNGER_WARNING_THRESHOLD = 70;
 const HUNGER_CRITICAL_THRESHOLD = 90;
 
 const particles = [];
-const ammoUsedPositions = new Set();
+const manaUsedPositions = new Set();
 const healthUsedPositions = new Set();
 const TITAN_SPAWN_INTERVAL = 60000;
 let titanAccumulator = 0;
@@ -421,10 +423,12 @@ const ENEMY_PREY_HEALTH_THRESHOLD = 0.3;
 const ENEMY_PREY_OPPORTUNITY_RANGE = CELL_SIZE * 4;
 const ENEMY_PREY_FEAST_HEAL = 60;
 const PREY_TYPES = [
-  { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.32 },
-  { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.26 },
-  { id: "burrower", speed: 140, health: 55, color: "#8cf29d", weight: 0.22 },
-  { id: "hootling", speed: 155, health: 48, color: "#b6ff9a", weight: 0.2 },
+  { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.24, radius: 14, groupMin: 1, groupMax: 2 },
+  { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.20, radius: 14, groupMin: 1, groupMax: 2 },
+  { id: "burrower", speed: 140, health: 55, color: "#8cf29d", weight: 0.18, radius: 16, groupMin: 1, groupMax: 2 },
+  { id: "hootling", speed: 155, health: 48, color: "#b6ff9a", weight: 0.16, radius: 14, groupMin: 1, groupMax: 2 },
+  { id: "spritelings", speed: 175, health: 24, color: "#9effd6", weight: 0.14, radius: 10, groupMin: 3, groupMax: 6, pack: true },
+  { id: "boulderback", speed: 110, health: 140, color: "#9a774c", weight: 0.08, radius: 24, groupMin: 1, groupMax: 1 },
 ];
 const PREY_SPAWN_INTERVAL = 8500;
 const MAX_PREY = 10;
@@ -438,11 +442,13 @@ const PREY_MEAT_RESTORE = 4;
 const PREY_MEAT_COLOR = "#ffb97f";
 const preyList = [];
 let preyAccumulator = PREY_SPAWN_INTERVAL;
+let ensuredPackPrey = false;
+let ensuredGiantPrey = false;
 
 function updateCanvasSize() {
   const dpr = window.devicePixelRatio || 1;
-  const targetWidth = Math.min(960, window.innerWidth - 16);
-  const targetHeight = isMobile ? window.innerHeight - 32 : Math.min(600, window.innerHeight - 160);
+  const targetWidth = Math.min(1200, window.innerWidth - 16);
+  const targetHeight = isMobile ? window.innerHeight - 32 : Math.min(720, window.innerHeight - 140);
   canvas.width = targetWidth * dpr;
   canvas.height = targetHeight * dpr;
   canvas.style.width = `${targetWidth}px`;
@@ -450,7 +456,7 @@ function updateCanvasSize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   VIEWPORT.width = targetWidth;
   VIEWPORT.height = targetHeight;
-  const minimapSize = isMobile ? 140 : 180;
+  const minimapSize = isMobile ? 150 : 200;
   minimapCanvas.width = minimapSize;
   minimapCanvas.height = minimapSize;
   minimapCanvas.style.width = `${minimapSize}px`;
@@ -465,7 +471,7 @@ function resetGame() {
   player.y = spawnPoint.y * CELL_SIZE + CELL_SIZE / 2;
   player.maxHealth = BASE_PLAYER_MAX_HEALTH;
   player.health = player.maxHealth;
-  player.ammo = STARTING_AMMO;
+  player.mana = STARTING_MANA;
   player.damage = BASE_GUN_DAMAGE;
   player.attackCooldown = BASE_GUN_COOLDOWN;
   player.attackRange = BASE_GUN_RANGE;
@@ -481,20 +487,24 @@ function resetGame() {
   player.hungerRate = BASE_HUNGER_RATE;
   player.hungerEaten = 0;
   player.mutationStage = 0;
+  player.lastFacingX = 0;
+  player.lastFacingY = 1;
   enemies.length = 0;
-  ammoDrops.length = 0;
+  manaDrops.length = 0;
   healthDrops.length = 0;
   meatDrops.length = 0;
   particles.length = 0;
-  ammoUsedPositions.clear();
+  manaUsedPositions.clear();
   healthUsedPositions.clear();
   meatUsedPositions.clear();
   spawnAccumulator = 0;
-  ammoAccumulator = AMMO_RESPAWN;
+  manaAccumulator = MANA_RESPAWN;
   healthAccumulator = HEALTH_RESPAWN;
   titanAccumulator = 0;
   preyList.length = 0;
   preyAccumulator = PREY_SPAWN_INTERVAL;
+  ensuredPackPrey = false;
+  ensuredGiantPrey = false;
   state.running = true;
   state.over = false;
   state.startedAt = performance.now();
@@ -512,7 +522,7 @@ function resetGame() {
   achievementTimer = 0;
   hungerWarningLevel = 0;
   document.body.classList.add("show-minimap");
-  createAmmoDrop();
+  createManaDrop();
   createHealthDrop();
   createTitanEnemy();
   for (let i = 0; i < Math.min(4, MAX_PREY); i += 1) {
@@ -647,6 +657,18 @@ function pickEnemyType() {
 }
 
 function pickPreyType() {
+  if (!ensuredPackPrey) {
+    const packType = PREY_TYPES.find((type) => type.id === "spritelings");
+    if (packType) {
+      return packType;
+    }
+  }
+  if (!ensuredGiantPrey && preyList.length >= Math.max(2, Math.floor(MAX_PREY / 2))) {
+    const giantType = PREY_TYPES.find((type) => type.id === "boulderback");
+    if (giantType) {
+      return giantType;
+    }
+  }
   const totalWeight = PREY_TYPES.reduce((sum, type) => sum + type.weight, 0);
   let roll = Math.random() * totalWeight;
   for (const type of PREY_TYPES) {
@@ -657,10 +679,10 @@ function pickPreyType() {
   return PREY_TYPES[0];
 }
 
-function createAmmoDrop() {
+function createManaDrop() {
   const drop = generatePickupLocation();
-  ammoUsedPositions.add(drop.key);
-  ammoDrops.push({
+  manaUsedPositions.add(drop.key);
+  manaDrops.push({
     x: drop.x,
     y: drop.y,
     radius: 18,
@@ -692,23 +714,55 @@ function createPrey() {
   const padding = 2;
   const tileX = room.x + padding + Math.floor(Math.random() * Math.max(1, room.width - padding * 2));
   const tileY = room.y + padding + Math.floor(Math.random() * Math.max(1, room.height - padding * 2));
-  const prey = {
-    x: tileX * CELL_SIZE + CELL_SIZE / 2,
-    y: tileY * CELL_SIZE + CELL_SIZE / 2,
-    radius: 14,
-    speed: template.speed,
-    maxHealth: template.health,
-    health: template.health,
-    color: template.color,
-    variant: template.id,
-    state: "idle",
-    idleTimer: PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN),
-    spawnTimer: ENEMY_SPAWN_FLASH,
-    animTimer: 0,
-    targetX: null,
-    targetY: null,
-  };
-  preyList.push(prey);
+  const baseX = tileX * CELL_SIZE + CELL_SIZE / 2;
+  const baseY = tileY * CELL_SIZE + CELL_SIZE / 2;
+  const groupMin = template.groupMin ?? 1;
+  const groupMax = template.groupMax ?? groupMin;
+  const desiredCount = groupMin + Math.floor(Math.random() * Math.max(1, groupMax - groupMin + 1));
+  let spawnCount = Math.max(1, Math.min(desiredCount, MAX_PREY - preyList.length));
+  const radius = template.radius ?? 14;
+
+  for (let i = 0; i < spawnCount; i += 1) {
+    let spawnX = baseX;
+    let spawnY = baseY;
+    if (spawnCount > 1) {
+      let attempt = 0;
+      const spread = (template.pack ? 0.45 : 0.65) * CELL_SIZE;
+      while (attempt < 12) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * spread;
+        const candidateX = baseX + Math.cos(angle) * distance;
+        const candidateY = baseY + Math.sin(angle) * distance;
+        if (isWalkable(candidateX, candidateY, radius)) {
+          spawnX = candidateX;
+          spawnY = candidateY;
+          break;
+        }
+        attempt += 1;
+      }
+    }
+    if (!isWalkable(spawnX, spawnY, radius)) continue;
+    preyList.push({
+      x: spawnX,
+      y: spawnY,
+      radius,
+      speed: template.speed,
+      maxHealth: template.health,
+      health: template.health,
+      color: template.color,
+      variant: template.id,
+      state: "idle",
+      idleTimer: PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN),
+      spawnTimer: ENEMY_SPAWN_FLASH,
+      animTimer: 0,
+      targetX: null,
+      targetY: null,
+      pack: !!template.pack,
+    });
+    if (template.id === "spritelings") ensuredPackPrey = true;
+    if (template.id === "boulderback") ensuredGiantPrey = true;
+    if (preyList.length >= MAX_PREY) break;
+  }
 }
 
 function scheduleMeatDrop(enemy, color, guaranteed = false, options = {}) {
@@ -758,7 +812,7 @@ function updateHUD() {
   const currentHealth = Math.max(Math.round(player.health), 0);
   const maxHealth = Math.round(player.maxHealth);
   healthEl.textContent = `${currentHealth}/${maxHealth}`;
-  ammoEl.textContent = player.ammo.toString().padStart(3, " ");
+  manaEl.textContent = player.mana.toString().padStart(3, " ");
   killsEl.textContent = state.kills.toString().padStart(3, "0");
   if (hungerEl) hungerEl.textContent = Math.floor(player.hunger).toString().padStart(3, " ");
   const elapsed = state.over ? state.durationWhenOver : Math.floor((performance.now() - state.startedAt) / 1000);
@@ -844,7 +898,7 @@ function handleGunUpgrade() {
     player.damage = newDamage;
     player.attackCooldown = newCooldown;
     player.attackRange = newRange;
-    player.ammo = Math.max(player.ammo, STARTING_AMMO);
+    player.mana = Math.max(player.mana, STARTING_MANA);
     const prevMaxHealth = player.maxHealth;
     player.maxHealth += 10;
     const healthGain = player.maxHealth - prevMaxHealth;
@@ -857,7 +911,7 @@ function handleGunUpgrade() {
     const levelLabel = `MK-${String(player.gunLevel + 1).padStart(2, "0")}`;
     const prefix = player.gunLevel === 1 ? "5 Kills! " : "";
     showAchievement(
-      `${prefix}Shotgun upgrade ${levelLabel}! Damage +${damageGain}, fire rate +${Math.max(fireRateGain, 0)}%, range +${rangeGain}, max HP +${healthGain}`,
+      `${prefix}Staff upgrade ${levelLabel}! Damage +${damageGain}, cast rate +${Math.max(fireRateGain, 0)}%, range +${rangeGain}, max HP +${healthGain}`,
     );
     updateHUD();
   }
@@ -924,6 +978,8 @@ function update(delta) {
     }
     player.facingX = moveX;
     player.facingY = moveY;
+    player.lastFacingX = moveX;
+    player.lastFacingY = moveY;
   }
 
   if (movedPlayer) {
@@ -943,10 +999,10 @@ function update(delta) {
     createEnemy();
   }
 
-  ammoAccumulator += delta;
-  if (ammoAccumulator >= AMMO_RESPAWN) {
-    ammoAccumulator -= AMMO_RESPAWN;
-    createAmmoDrop();
+  manaAccumulator += delta;
+  if (manaAccumulator >= MANA_RESPAWN) {
+    manaAccumulator -= MANA_RESPAWN;
+    createManaDrop();
   }
 
   healthAccumulator += delta;
@@ -1134,8 +1190,8 @@ function update(delta) {
     }
   }
 
-  for (let i = ammoDrops.length - 1; i >= 0; i -= 1) {
-    const drop = ammoDrops[i];
+  for (let i = manaDrops.length - 1; i >= 0; i -= 1) {
+    const drop = manaDrops[i];
     drop.lifetime -= delta;
     if (drop.bobPhase === undefined) {
       drop.bobPhase = Math.random() * Math.PI * 2;
@@ -1146,16 +1202,16 @@ function update(delta) {
     }
     drop.bobOffset = Math.sin(drop.bobPhase) * PICKUP_BOB_AMPLITUDE;
     if (drop.lifetime <= 0) {
-      ammoUsedPositions.delete(drop.key);
-      ammoDrops.splice(i, 1);
+      manaUsedPositions.delete(drop.key);
+      manaDrops.splice(i, 1);
       continue;
     }
     const distance = Math.hypot(drop.x - player.x, drop.y - player.y);
     if (distance < drop.radius + player.radius) {
-      player.ammo = Math.min(player.maxAmmo, player.ammo + 5);
+      player.mana = Math.min(player.maxMana, player.mana + 5);
       spawnParticles(drop.x, drop.y, "#62f2ff");
-      ammoUsedPositions.delete(drop.key);
-      ammoDrops.splice(i, 1);
+      manaUsedPositions.delete(drop.key);
+      manaDrops.splice(i, 1);
     }
   }
 
@@ -1250,6 +1306,32 @@ function updatePrey(delta) {
       prey.idleTimer = PREY_IDLE_MIN;
       return;
     }
+    if (prey.pack && prey.state !== "flee") {
+      let cx = 0;
+      let cy = 0;
+      let count = 0;
+      const cohesionRange = CELL_SIZE * 2.6;
+      preyList.forEach((other) => {
+        if (other === prey || other.variant !== prey.variant) return;
+        const d = Math.hypot(other.x - prey.x, other.y - prey.y);
+        if (d < cohesionRange) {
+          cx += other.x;
+          cy += other.y;
+          count += 1;
+        }
+      });
+      if (count > 0) {
+        const avgX = cx / count;
+        const avgY = cy / count;
+        if (!prey.targetX || Math.hypot(prey.targetX - avgX, prey.targetY - avgY) > CELL_SIZE * 0.5) {
+          prey.targetX = avgX;
+          prey.targetY = avgY;
+          if (prey.state !== "patrol") {
+            prey.state = "patrol";
+          }
+        }
+      }
+    }
     if (prey.state === "flee") {
       prey.state = "idle";
       prey.idleTimer = PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN);
@@ -1285,9 +1367,9 @@ function attack() {
   if (state.paused || !state.running) return;
   const now = performance.now();
   if (now - player.lastAttack < player.attackCooldown) return;
-  if (player.ammo <= 0) return;
+  if (player.mana <= 0) return;
   player.lastAttack = now;
-  player.ammo -= 1;
+  player.mana -= 1;
   player.shootingTimer = 200;
   spawnParticles(player.x, player.y, "#f9d64c", 160, 18);
   enemies.forEach((enemy) => {
@@ -1336,7 +1418,7 @@ function draw() {
   const cameraY = player.y - VIEWPORT.height / 2;
   drawFloor(cameraX, cameraY);
   drawDecorations(cameraX, cameraY);
-  drawAmmo(cameraX, cameraY);
+  drawMana(cameraX, cameraY);
   drawHealth(cameraX, cameraY);
   drawMeat(cameraX, cameraY);
   drawPrey(cameraX, cameraY);
@@ -1348,11 +1430,11 @@ function draw() {
   drawMinimap();
 }
 
-function drawAmmo(offsetX, offsetY) {
-  ammoDrops.forEach((drop) => {
+function drawMana(offsetX, offsetY) {
+  manaDrops.forEach((drop) => {
     const screenX = drop.x - offsetX;
     const screenY = drop.y - offsetY;
-    drawPickupSprite(screenX, screenY, "ammo", drop.bobOffset || 0);
+    drawPickupSprite(screenX, screenY, "mana", drop.bobOffset || 0);
   });
 }
 
@@ -1394,15 +1476,36 @@ function drawPickupSprite(x, y, type, hoverOffset = 0) {
   ctx.translate(x, y + hoverOffset);
   ctx.scale(PICKUP_SCALE, PICKUP_SCALE);
 
-  if (type === "ammo") {
-    ctx.fillStyle = "#1f1f1f";
-    ctx.fillRect(-2.6, -2.4, 5.2, 4.0);
-    ctx.fillStyle = "#58351a";
-    ctx.fillRect(-2.2, -1.7, 4.4, 1.4);
-    ctx.fillStyle = "#c16a28";
-    ctx.fillRect(-1.6, -0.8, 3.2, 2.4);
-    ctx.fillStyle = "#ffd27b";
-    ctx.fillRect(-1.2, -0.2, 2.4, 1.0);
+  if (type === "mana") {
+    ctx.fillStyle = "#b8c5ff";
+    ctx.fillRect(-1.2, -3.4, 2.4, 0.8);
+    ctx.fillStyle = "#8f5a2e";
+    ctx.fillRect(-1.0, -3.8, 2.0, 0.6);
+    ctx.fillStyle = "#dfe6ff";
+    ctx.beginPath();
+    ctx.moveTo(-2.3, -2.4);
+    ctx.quadraticCurveTo(-2.6, 0.4, -1.2, 2.2);
+    ctx.quadraticCurveTo(0, 3.0, 1.2, 2.2);
+    ctx.quadraticCurveTo(2.6, 0.4, 2.3, -2.4);
+    ctx.quadraticCurveTo(0, -3.2, -2.3, -2.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#2d5bff";
+    ctx.beginPath();
+    ctx.moveTo(-1.9, -1.2);
+    ctx.quadraticCurveTo(-2.0, 1.6, -0.8, 2.1);
+    ctx.quadraticCurveTo(0, 2.4, 0.8, 2.1);
+    ctx.quadraticCurveTo(2.0, 1.6, 1.9, -1.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath();
+    ctx.moveTo(-1.4, -1.6);
+    ctx.quadraticCurveTo(-1.6, 0.0, -0.6, 0.8);
+    ctx.quadraticCurveTo(-0.2, 1.1, 0.1, 0.6);
+    ctx.quadraticCurveTo(-0.6, -0.4, -1.0, -1.8);
+    ctx.closePath();
+    ctx.fill();
   } else {
     ctx.fillStyle = "#1a3c24";
     ctx.fillRect(-2.8, -2.6, 5.6, 5.2);
@@ -1816,317 +1919,493 @@ function drawPlayer(offsetX, offsetY) {
   ctx.arc(screenX, screenY, player.attackRange, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
-  let fx = player.facingX;
-  let fy = player.facingY;
-  if (Math.abs(fx) < 0.01 && Math.abs(fy) < 0.01) {
-    fx = 1;
-    fy = 0;
+  const hasFacing = Math.abs(player.facingX) > 0.01 || Math.abs(player.facingY) > 0.01;
+  let fx = hasFacing ? player.facingX : player.lastFacingX || 0;
+  let fy = hasFacing ? player.facingY : player.lastFacingY || 1;
+  if (fx === 0 && fy === 0) fy = 1;
+
+  const absFx = Math.abs(fx);
+  const absFy = Math.abs(fy);
+
+  let orientation = "front";
+  let facing = 1;
+
+  if (absFy >= absFx) {
+    if (fy <= -0.2) {
+      orientation = "back";
+    } else if (fy >= 0.2) {
+      orientation = "front";
+    } else if (absFx > 0.1) {
+      orientation = "side";
+      facing = fx >= 0 ? 1 : -1;
+    }
+  } else if (absFx > 0.1) {
+    orientation = "side";
+    facing = fx >= 0 ? 1 : -1;
   }
-  const angle = Math.atan2(fy, fx);
-  const facing = Math.cos(angle) >= 0 ? 1 : -1;
-  drawPlayerSprite(screenX, screenY, player.frame, facing, player.shootingTimer > 0);
+
+  drawPlayerSprite(screenX, screenY, player.frame, orientation, facing, player.shootingTimer > 0);
 }
 
-function drawPlayerSprite(x, y, frame, facing, shooting) {
-  const scale = 2.8;
+function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
+  const scale = 3.1;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
-  if (facing < 0) {
+  if (orientation === "side" && facing < 0) {
     ctx.scale(-1, 1);
   }
 
+  const isSide = orientation === "side";
+  const isBack = orientation === "back";
+
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
-  ctx.ellipse(0, 2.4, 3.4, 1.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 2.6, isSide ? 2.8 : 3.2, 1.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   const stage = Math.min(player.mutationStage || 0, MAX_MUTATION_STAGE);
   const stageRatio = stage / MAX_MUTATION_STAGE;
-  const legOffsets = [0, 0.35, 0, -0.35];
-  const legOpp = [0, -0.35, 0, 0.35];
-  const lf = legOffsets[frame % 4];
-  const rf = legOpp[frame % 4];
+  const walkPhase = frame % 4;
 
-  const leftLegColor =
-    stage >= 17 ? "#432005" : stage >= 11 ? "#b56516" : stage >= 3 ? "#f79d2a" : "#343434";
-  const rightLegColor =
-    stage >= 18 ? "#761239" : stage >= 12 ? "#c11a5d" : stage >= 4 ? "#ff4d94" : "#343434";
-  const torsoTopColor =
-    stage >= 19 ? "#170815" : stage >= 16 ? "#2f1326" : stage >= 10 ? "#1d1638" : stage >= 6 ? "#2d3080" : "#3764f0";
-  const torsoMidColor =
-    stage >= 19 ? "#0c030d" : stage >= 16 ? "#1b0a1a" : stage >= 10 ? "#120c24" : stage >= 6 ? "#1f2158" : "#2546a6";
-  const beltColor = stage >= 18 ? "#3b0f2f" : stage >= 12 ? "#271939" : "#1f1f1f";
-  const harnessStrapColor = stage >= 19 ? "#2a0215" : stage >= 10 ? "#1b0f2f" : "#1e1e1e";
-  const harnessColor = stage >= 15 ? "#ff1f6a" : stage >= 5 ? "#ff4d94" : "#343434";
-  const leftArmColor =
-    stage >= 18 ? "#4d0505" : stage >= 13 ? "#7d1111" : stage >= 7 ? "#b11b1b" : stage >= 1 ? "#f25858" : "#f0c9a6";
-  const rightArmColor =
-    stage >= 19 ? "#230f59" : stage >= 14 ? "#3a1b8f" : stage >= 8 ? "#5d34c7" : stage >= 2 ? "#8b5cf6" : "#f0c9a6";
-  const headColor =
-    stage >= 19 ? "#5a2730" : stage >= 16 ? "#864348" : stage >= 13 ? "#b76f5e" : stage >= 9 ? "#d6a089" : "#fbdcbf";
-  const hairColor =
-    stage >= 18 ? "#2f0f26" : stage >= 12 ? "#421a38" : stage >= 7 ? "#6c2f4b" : "#d89a65";
-  const visorColor = stage >= 18 ? "#fdda6e" : stage >= 12 ? "#f06be8" : stage >= 9 ? "#3a1d4f" : "#1d1d1d";
-  const auraStroke = stage >= 19 ? "#ff2f8f" : stage >= 16 ? "#b154ff" : "#6f5bff";
+  const robeColor = stage >= 15 ? "#362971" : stage >= 9 ? "#3d3fa2" : stage >= 4 ? "#4d56c8" : "#765438";
+  const robeHighlight = stage >= 15 ? "#4b3ba2" : stage >= 9 ? "#5055c4" : stage >= 4 ? "#6673dc" : "#8f6d49";
+  const trimColor = stage >= 12 ? "#d7d0ff" : stage >= 6 ? "#b7caff" : "#cfb582";
+  const sashColor = stage >= 16 ? "#ff9557" : stage >= 8 ? "#e2c46a" : "#ba8141";
+  const gloveColor = stage >= 10 ? "#7568d8" : stage >= 4 ? "#5f56c1" : "#8b6b45";
+  const hatBase = stage >= 18 ? "#f4d88b" : stage >= 12 ? "#e5c46a" : stage >= 6 ? "#d4b05c" : "#c59b4e";
+  const hatShadow = stage >= 18 ? "#cda962" : stage >= 12 ? "#b8944d" : stage >= 6 ? "#a27d3f" : "#8f6e36";
+  const hatHighlight = stage >= 18 ? "#fff0c5" : stage >= 12 ? "#f9e5ae" : stage >= 6 ? "#efd592" : "#e3c27a";
+  const headColor = "#06050c";
+  const faceGlow = `rgba(190, 210, 255, ${0.18 + stageRatio * 0.12})`;
+  const eyeColor = "#ffffff";
+  const eyeGlow = `rgba(255, 255, 255, ${0.4 + stageRatio * 0.22})`;
+  const eyePulse = 0.04 + Math.sin(animationTime * 0.005 + walkPhase) * 0.03;
 
-  if (stage >= 8) {
+  const robeWidth = isSide ? 2.3 : 2.8;
+  const robeBaseY = 3.15;
+  const belly = Math.sin((walkPhase + (shooting ? 0.5 : 0)) * (Math.PI / 2)) * 0.12;
+  const sway = Math.sin(animationTime * 0.0025) * 0.12;
+  const staffGlow = shooting ? 0.36 : 0.22 + stageRatio * 0.12;
+  const staffShift = shooting ? 0.55 : 0.1;
+  const staffBaseX = orientation === "back" ? 2.0 : orientation === "side" ? 2.4 : 2.8;
+  const staffBaseY = orientation === "back" ? -1.6 : -1.4;
+
+  const drawStaff = () => {
     ctx.save();
-    ctx.translate(-2.2, 1.0);
-    const tailColor = stage >= 18 ? "#320b3c" : stage >= 12 ? "#40235a" : "#4d2d7a";
-    ctx.fillStyle = tailColor;
-    ctx.beginPath();
-    ctx.moveTo(-0.3, -0.1);
-    ctx.quadraticCurveTo(-2.0 - stageRatio * 3.0, -1.9, -2.8 - stageRatio * 2.4, 0.1);
-    ctx.quadraticCurveTo(-3.0 - stageRatio * 2.2, 1.6, -1.2, 2.2);
-    ctx.quadraticCurveTo(-0.8, 1.0, -0.3, -0.1);
-    ctx.closePath();
-    ctx.fill();
-
-    if (stage >= 14) {
-      const spikeCount = stage >= 19 ? 4 : 3;
-      ctx.fillStyle = stage >= 19 ? "#ff1f6a" : "#f5c04a";
-      for (let i = 0; i < spikeCount; i += 1) {
-        const t = spikeCount === 1 ? 0 : i / (spikeCount - 1);
-        const baseX = -2.6 - stageRatio * 2.2 * t;
-        const baseY = 0.5 + t * 1.1;
-        ctx.beginPath();
-        ctx.moveTo(baseX, baseY);
-        ctx.lineTo(baseX - 0.55, baseY - 0.85);
-        ctx.lineTo(baseX + 0.35, baseY - 0.45);
-        ctx.closePath();
-        ctx.fill();
-      }
+    ctx.translate(staffBaseX + staffShift, staffBaseY);
+    if (shooting) {
+      ctx.rotate(-0.18);
+    } else if (orientation === "back") {
+      ctx.rotate(0.08);
+    } else {
+      ctx.rotate(0.05);
     }
-    ctx.restore();
-  }
-
-  ctx.fillStyle = leftLegColor;
-  ctx.fillRect(-1.4 + lf, 0.8, 1.1, 2.4);
-  ctx.fillStyle = rightLegColor;
-  ctx.fillRect(0.3 + rf, 0.8, 1.1, 2.4);
-
-  if (stage >= 14) {
-    const clawColor = stage >= 19 ? "#fbeccf" : "#f8e6d1";
-    ctx.fillStyle = clawColor;
-    ctx.fillRect(-1.45 + lf, 3.05, 1.2, 0.32);
-    ctx.fillRect(0.25 + rf, 3.05, 1.2, 0.32);
-  }
-
-  ctx.fillStyle = torsoTopColor;
-  ctx.fillRect(-2.2, -1.9, 4.4, 3.8);
-  ctx.fillStyle = torsoMidColor;
-  ctx.fillRect(-2.2, -0.4, 4.4, 1.2);
-  ctx.fillStyle = beltColor;
-  ctx.fillRect(-2.0, -0.1, 4.0, 0.6);
-
-  if (stage >= 11) {
-    ctx.fillStyle = stage >= 19 ? "#66122c" : stage >= 15 ? "#8b1f3d" : "#4f236c";
+    ctx.fillStyle = "#5b3b22";
     ctx.beginPath();
-    ctx.moveTo(-1.1, -1.4);
-    ctx.lineTo(1.1, -1.4);
-    ctx.lineTo(1.4, 0.6);
-    ctx.lineTo(-1.4, 0.6);
+    ctx.moveTo(-0.35, -0.3);
+    ctx.quadraticCurveTo(-0.65, 2.0, -0.25, 3.6);
+    ctx.quadraticCurveTo(0.15, 5.4, -0.05, 6.2);
+    ctx.quadraticCurveTo(0.3, 6.4, 0.55, 6.1);
+    ctx.quadraticCurveTo(0.25, 4.2, 0.55, 2.0);
+    ctx.quadraticCurveTo(0.75, 0.6, 0.35, -0.4);
     ctx.closePath();
     ctx.fill();
-  }
 
-  if (stage >= 17) {
-    ctx.save();
-    ctx.strokeStyle = stage >= 20 ? "rgba(255, 94, 0, 0.8)" : "rgba(251, 122, 255, 0.72)";
-    ctx.lineWidth = 0.16;
+    ctx.fillStyle = stage >= 12 ? "#8b77e6" : stage >= 4 ? "#5c54c4" : "#3f3279";
     ctx.beginPath();
-    ctx.moveTo(-0.6, -1.1);
-    ctx.lineTo(-0.2, -0.4);
-    ctx.lineTo(-0.8, 0.3);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0.5, -1.3);
-    ctx.lineTo(0.7, -0.4);
-    ctx.lineTo(0.3, 0.2);
-    ctx.stroke();
-    ctx.restore();
-  }
+    ctx.ellipse(0, -0.8, 0.65, 0.75, 0, 0, Math.PI * 2);
+    ctx.fill();
 
-  if (stage >= 6) {
-    ctx.fillStyle = stage >= 15 ? "#ffdb5a" : "#b490ff";
+    const orbCore = stage >= 16 ? "#ffd95f" : stage >= 8 ? "#ffcd40" : "#ffba26";
+    ctx.fillStyle = orbCore;
     ctx.beginPath();
-    ctx.moveTo(-2.5, -1.6);
-    ctx.lineTo(-3.3, -0.6 - legOffsets[(frame + 2) % 4] * 0.2);
-    ctx.lineTo(-2.4, -1.0);
-    ctx.closePath();
+    ctx.arc(0, -1.4, 1.05 + staffGlow * 0.5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = "rgba(255,233,110,0.75)";
+    ctx.lineWidth = 0.22;
     ctx.beginPath();
-    ctx.moveTo(2.5, -1.6);
-    ctx.lineTo(3.3, -0.6 + legOpp[(frame + 2) % 4] * 0.2);
-    ctx.lineTo(2.4, -1.0);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  if (stage >= 15) {
-    ctx.fillStyle = stage >= 19 ? "#ff387a" : "#f0b74d";
-    ctx.beginPath();
-    ctx.moveTo(-1.8, -2.2);
-    ctx.lineTo(-2.4, -3.4);
-    ctx.lineTo(-1.3, -2.6);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(1.8, -2.2);
-    ctx.lineTo(2.4, -3.4);
-    ctx.lineTo(1.3, -2.6);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  if (stage >= 13) {
-    ctx.save();
-    ctx.globalAlpha = Math.min(0.34, 0.12 + stageRatio * 0.32);
-    ctx.strokeStyle = auraStroke;
-    ctx.lineWidth = 0.5 + stageRatio * 1.2;
-    ctx.beginPath();
-    ctx.arc(0, -0.1, 3.6 + stageRatio * 1.4, 0, Math.PI * 2);
+    ctx.arc(0, -1.4, 1.3 + staffGlow * 0.45, 0, Math.PI * 2);
     ctx.stroke();
     if (stage >= 18) {
-      ctx.globalAlpha *= 0.75;
+      ctx.globalAlpha = 0.65 + staffGlow * 0.55;
+      ctx.strokeStyle = "rgba(255,214,96,0.65)";
       ctx.beginPath();
-      ctx.arc(0, -0.1, 2.7 + stageRatio, 0, Math.PI * 2);
+      ctx.arc(0, -1.4, 1.8 + staffGlow, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
+  };
+
+  if (isBack) {
+    drawStaff();
   }
 
-  ctx.fillStyle = harnessStrapColor;
-  ctx.fillRect(0.9, -2.3, 1.0, 4.8);
-  ctx.fillStyle = harnessColor;
-  ctx.fillRect(0.8, -1.5, 1.2, 0.7);
+  ctx.save();
+  if (isSide) ctx.scale(0.9, 1);
 
-  ctx.fillStyle = leftArmColor;
-  ctx.fillRect(-3.0, -1.2, 0.7, 1.8);
-  ctx.fillStyle = rightArmColor;
-  ctx.fillRect(2.3, -1.2, 0.7, 1.8);
+  const leftLift = Math.max(0, Math.sin(walkPhase * (Math.PI / 2))) * 0.45;
+  const rightLift = Math.max(0, Math.sin(((walkPhase + 2) % 4) * (Math.PI / 2))) * 0.45;
+  const leftSwing = Math.cos(walkPhase * (Math.PI / 2)) * 0.32;
+  const rightSwing = Math.cos(((walkPhase + 2) % 4) * (Math.PI / 2)) * 0.32;
+  const bootColor = stage >= 10 ? "#2a2441" : "#342a44";
+  const soleColor = stage >= 10 ? "#4a3f6b" : "#45385c";
 
-  if (stage >= 9) {
-    const clawTone = stage >= 19 ? "#fdf1f8" : "#f6d7f1";
-    ctx.fillStyle = clawTone;
-    ctx.fillRect(-3.0, -0.2, 0.8, 0.35);
-    ctx.fillRect(2.3, -0.2, 0.8, 0.35);
-  }
-
-  if (stage >= 18) {
-    ctx.fillStyle = "#ff5b9f";
-    ctx.fillRect(-3.15, -0.9, 0.4, 1.1);
-    ctx.fillRect(2.75, -0.9, 0.4, 1.1);
-  }
-
-  ctx.fillStyle = headColor;
-  ctx.fillRect(-1.5, -3.8, 3.0, 2.2);
-  ctx.fillStyle = hairColor;
-  ctx.fillRect(-1.5, -4.2, 3.0, 0.8);
-  ctx.fillStyle = visorColor;
-  ctx.fillRect(-1.1, -2.7, 2.2, 0.5);
-
-  if (stage >= 7) {
-    ctx.fillStyle = stage >= 16 ? "#f6d266" : "#d2a23a";
+  const drawFeetFront = () => {
+    ctx.fillStyle = bootColor;
     ctx.beginPath();
-    ctx.moveTo(-0.9, -4.2);
-    ctx.lineTo(-0.1, -5.6 - stageRatio * 0.8);
-    ctx.lineTo(0.1, -4.2);
-    ctx.closePath();
+    ctx.ellipse(-1.25 + leftSwing * 0.45, robeBaseY - leftLift, 1.2, 0.75 + leftLift * 0.25, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(0.9, -4.2);
-    ctx.lineTo(0.1, -5.6 - stageRatio * 0.8);
-    ctx.lineTo(-0.1, -4.2);
+    ctx.ellipse(1.05 + rightSwing * 0.45, robeBaseY - rightLift, 1.2, 0.75 + rightLift * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = soleColor;
+    ctx.beginPath();
+    ctx.ellipse(-1.25 + leftSwing * 0.45, robeBaseY + 0.18, 1.25, 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(1.05 + rightSwing * 0.45, robeBaseY + 0.18, 1.25, 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  const drawFeetSide = () => {
+    ctx.fillStyle = bootColor;
+    ctx.beginPath();
+    ctx.ellipse(-0.85 + leftSwing * 0.35, robeBaseY - leftLift * 0.9, 1.3, 0.8 + leftLift * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = soleColor;
+    ctx.beginPath();
+    ctx.ellipse(-0.85 + leftSwing * 0.35, robeBaseY + 0.2, 1.35, 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = bootColor;
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    ctx.beginPath();
+    ctx.ellipse(0.75 + rightSwing * 0.25, robeBaseY - rightLift * 0.6, 1.05, 0.65 + rightLift * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawFront = () => {
+    ctx.fillStyle = robeColor;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth, -1.2 - sway);
+    ctx.quadraticCurveTo(-robeWidth - 0.7, 0.9 + belly, -1.1, robeBaseY);
+    ctx.quadraticCurveTo(0, robeBaseY + 0.6, 1.1, robeBaseY);
+    ctx.quadraticCurveTo(robeWidth + 0.7, 0.9 + belly, robeWidth, -1.2 - sway);
+    ctx.quadraticCurveTo(0, -2.3 - sway * 0.4, -robeWidth, -1.2 - sway);
     ctx.closePath();
     ctx.fill();
-    if (stage >= 12) {
-      const sideHornColor = stage >= 18 ? "#f77e1f" : "#f0b74d";
-      ctx.fillStyle = sideHornColor;
+
+    ctx.fillStyle = robeHighlight;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth * 0.6, -0.8 - sway * 0.5);
+    ctx.quadraticCurveTo(-robeWidth * 0.4, 0.9 + belly * 0.6, -0.4, 2.6);
+    ctx.quadraticCurveTo(0, 2.95, 0.4, 2.6);
+    ctx.quadraticCurveTo(robeWidth * 0.4, 0.9 + belly * 0.6, robeWidth * 0.6, -0.8 - sway * 0.5);
+    ctx.quadraticCurveTo(0, -1.8 - sway * 0.3, -robeWidth * 0.6, -0.8 - sway * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = sashColor;
+    ctx.beginPath();
+    ctx.ellipse(0, 0.6 + belly * 0.4, robeWidth * 0.82, 0.95, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = trimColor;
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath();
+    ctx.ellipse(0, 0.4 + belly * 0.4, robeWidth * 0.7, 0.65, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = gloveColor;
+    ctx.beginPath();
+    ctx.ellipse(-robeWidth + 0.5, 0.3 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(robeWidth - 0.5, 0.3 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = headColor;
+    ctx.beginPath();
+    ctx.ellipse(0, -2.05, 1.72, 1.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = faceGlow;
+    ctx.beginPath();
+    ctx.ellipse(0, -2.05, 1.86, 1.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const eyeWidth = 0.34 + eyePulse;
+    const eyeHeight = 0.46 + eyePulse * 0.6;
+    ctx.fillStyle = eyeGlow;
+    ctx.beginPath();
+    ctx.ellipse(-0.64, -2.0, eyeWidth + 0.18, eyeHeight + 0.14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0.64, -2.0, eyeWidth + 0.18, eyeHeight + 0.14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = eyeColor;
+    ctx.beginPath();
+    ctx.ellipse(-0.64, -2.0, eyeWidth, eyeHeight, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0.64, -2.0, eyeWidth, eyeHeight, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.ellipse(-0.38, -2.18, 0.16, 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0.38, -2.18, 0.16, 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    ctx.fillStyle = hatShadow;
+    ctx.beginPath();
+    ctx.ellipse(0, -2.25, robeWidth + 0.7, 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = hatBase;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth - 0.5, -2.3);
+    ctx.quadraticCurveTo(-1.6, -3.3 - stageRatio * 0.4, -0.8, -4.6 - stageRatio * 0.5);
+    ctx.quadraticCurveTo(-0.1, -5.7 - stageRatio * 0.55, 1.1, -4.9 - stageRatio * 0.6);
+    ctx.quadraticCurveTo(2.6, -3.9 - stageRatio * 0.45, robeWidth + 0.8, -2.35);
+    ctx.quadraticCurveTo(0.4, -2.6, -robeWidth - 0.5, -2.3);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = hatHighlight;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(-1.0, -4.3 - stageRatio * 0.45);
+    ctx.quadraticCurveTo(-0.5, -4.9 - stageRatio * 0.5, 0.6, -4.8 - stageRatio * 0.55);
+    ctx.quadraticCurveTo(1.5, -4.4 - stageRatio * 0.45, 0.9, -3.7 - stageRatio * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    drawFeetFront();
+  };
+
+  const drawSide = () => {
+    ctx.fillStyle = robeColor;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth + 0.4, -1.3 - sway);
+    ctx.quadraticCurveTo(-robeWidth - 0.3, 1.0 + belly, -0.9, robeBaseY);
+    ctx.quadraticCurveTo(0.4, robeBaseY + 0.4, 1.6, robeBaseY - 0.2);
+    ctx.quadraticCurveTo(2.2, 0.8 + belly * 0.6, 2.1, -0.4);
+    ctx.quadraticCurveTo(2.3, -1.6, -robeWidth + 0.4, -1.3 - sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = robeHighlight;
+    ctx.beginPath();
+    ctx.moveTo(-1.4, -0.6 - sway * 0.5);
+    ctx.quadraticCurveTo(-1.2, 0.6 + belly * 0.4, -0.5, 2.5);
+    ctx.quadraticCurveTo(0.2, 2.8, 0.9, 2.4);
+    ctx.quadraticCurveTo(1.5, 1.0, 1.2, -0.4 - sway * 0.3);
+    ctx.quadraticCurveTo(-0.1, -1.2, -1.4, -0.6 - sway * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = sashColor;
+    ctx.beginPath();
+    ctx.ellipse(-0.2, 0.4 + belly * 0.4, robeWidth * 0.65, 0.85, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = gloveColor;
+    ctx.beginPath();
+    ctx.ellipse(robeWidth - 0.1, 0.1 + belly * 0.3, 0.75, 1.0, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = headColor;
+    ctx.beginPath();
+    ctx.ellipse(0.3, -2.0, 1.2, 1.0, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = faceGlow;
+    ctx.beginPath();
+    ctx.ellipse(0.4, -2.0, 1.3, 1.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const sideEyeWidth = 0.3 + eyePulse * 0.8;
+    const sideEyeHeight = 0.35 + eyePulse * 0.5;
+    ctx.fillStyle = headColor;
+    ctx.beginPath();
+    ctx.ellipse(0.8, -1.9, 0.9, 0.82, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = faceGlow;
+    ctx.beginPath();
+    ctx.ellipse(0.86, -1.88, 1.02, 0.95, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = eyeGlow;
+    ctx.beginPath();
+    ctx.ellipse(0.9, -1.9, sideEyeWidth + 0.2, sideEyeHeight + 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = eyeColor;
+    ctx.beginPath();
+    ctx.ellipse(0.96, -1.9, sideEyeWidth + 0.06, sideEyeHeight + 0.04, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.ellipse(1.02, -1.98, 0.12, 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = hatShadow;
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.ellipse(0.1, -1.95, robeWidth + 0.55, 0.55, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = hatBase;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth, -2.2);
+    ctx.quadraticCurveTo(-0.8, -3.1 - stageRatio * 0.4, 0.3, -4.4 - stageRatio * 0.5);
+    ctx.quadraticCurveTo(1.1, -5.2 - stageRatio * 0.55, 2.2, -4.4 - stageRatio * 0.5);
+    ctx.quadraticCurveTo(2.9, -3.4 - stageRatio * 0.4, 2.4, -2.1);
+    ctx.quadraticCurveTo(0.8, -2.5, -robeWidth, -2.2);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = hatHighlight;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(0.2, -3.8 - stageRatio * 0.45);
+    ctx.quadraticCurveTo(1.0, -3.6 - stageRatio * 0.4, 1.6, -2.8 - stageRatio * 0.35);
+    ctx.quadraticCurveTo(0.8, -2.9, 0.2, -3.0 - stageRatio * 0.35);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    drawFeetSide();
+  };
+
+  const drawBack = () => {
+    ctx.fillStyle = robeColor;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth, -1.1 - sway);
+    ctx.quadraticCurveTo(-robeWidth - 0.6, 0.95 + belly, -1.05, robeBaseY);
+    ctx.quadraticCurveTo(0, robeBaseY + 0.5, 1.05, robeBaseY);
+    ctx.quadraticCurveTo(robeWidth + 0.6, 0.95 + belly, robeWidth, -1.1 - sway);
+    ctx.quadraticCurveTo(0, -2.4 - sway * 0.4, -robeWidth, -1.1 - sway);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = robeHighlight;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth * 0.6, -0.7 - sway * 0.5);
+    ctx.quadraticCurveTo(-0.4, 1.0 + belly * 0.6, -0.6, 2.6);
+    ctx.quadraticCurveTo(0, 3.15, 0.6, 2.6);
+    ctx.quadraticCurveTo(0.4, 1.0 + belly * 0.6, robeWidth * 0.6, -0.7 - sway * 0.5);
+    ctx.quadraticCurveTo(0, -1.9 - sway * 0.25, -robeWidth * 0.6, -0.7 - sway * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = trimColor;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth * 0.5, 1.2 + belly * 0.4);
+    ctx.quadraticCurveTo(0, 2.3, robeWidth * 0.5, 1.2 + belly * 0.4);
+    ctx.quadraticCurveTo(0, 2.8, -robeWidth * 0.5, 1.2 + belly * 0.4);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = hatBase;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth - 0.4, -1.9);
+    ctx.quadraticCurveTo(-1.2, -3.1 - stageRatio * 0.45, -0.6, -4.8 - stageRatio * 0.55);
+    ctx.quadraticCurveTo(0, -5.7 - stageRatio * 0.55, 0.7, -4.9 - stageRatio * 0.55);
+    ctx.quadraticCurveTo(1.4, -3.6 - stageRatio * 0.45, robeWidth + 0.4, -1.9);
+    ctx.quadraticCurveTo(0, -2.6, -robeWidth - 0.4, -1.9);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = hatShadow;
+    ctx.beginPath();
+    ctx.ellipse(0, -1.7, robeWidth + 0.75, 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = hatHighlight;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(-0.4, -4.7 - stageRatio * 0.55);
+    ctx.quadraticCurveTo(0.1, -5.1 - stageRatio * 0.55, 0.6, -4.6 - stageRatio * 0.5);
+    ctx.quadraticCurveTo(0.1, -4.4 - stageRatio * 0.45, -0.4, -4.2 - stageRatio * 0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    drawFeetFront();
+  };
+
+  const drawSparkles = () => {
+    const sparkleCount = 6;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < sparkleCount; i += 1) {
+      const angle = animationTime * 0.003 + i * ((Math.PI * 2) / sparkleCount);
+      const radius = 2.2 + Math.sin(animationTime * 0.004 + i * 1.7) * 0.25 + stageRatio * 0.18;
+      const xOffset = Math.cos(angle) * radius;
+      const yOffset = Math.sin(angle) * (radius * 0.6) - 1.1;
+      const sizeBase = 0.2 + stageRatio * 0.08;
+      const size = sizeBase + Math.sin(animationTime * 0.01 + i * 2.3) * 0.05;
+      ctx.save();
+      ctx.globalAlpha = 0.26 + stageRatio * 0.18 + Math.sin(animationTime * 0.006 + i) * 0.08;
+      ctx.fillStyle = stage >= 10 ? "rgba(180, 225, 255, 0.9)" : "rgba(255, 248, 230, 0.9)";
       ctx.beginPath();
-      ctx.moveTo(-1.5, -4.0);
-      ctx.lineTo(-2.0, -5.1);
-      ctx.lineTo(-1.3, -4.2);
-      ctx.closePath();
+      ctx.ellipse(xOffset, yOffset, size, size * 0.6, angle, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  };
+
+  if (isBack) {
+    drawBack();
+  } else if (isSide) {
+    drawSide();
+  } else {
+    drawFront();
+  }
+
+  drawSparkles();
+
+  ctx.restore();
+
+  if (!isBack) {
+    drawStaff();
+  }
+
+  if (stage >= 4) {
+    const sparkCount = 3 + Math.floor(stageRatio * 5);
+    for (let i = 0; i < sparkCount; i += 1) {
+      const angle = (i / sparkCount) * Math.PI * 2 + animationTime * 0.0015;
+      const radius = 2.6 + stageRatio * 0.9 + Math.sin(animationTime * 0.002 + i) * 0.2;
+      const sx = Math.cos(angle) * radius;
+      const sy = Math.sin(angle) * (radius * 0.4) - 1.0;
+      const flicker = 0.5 + Math.sin(animationTime * 0.004 + i * 2) * 0.25;
+      ctx.fillStyle = `rgba(255, ${200 + Math.floor(stageRatio * 30)}, ${90 + Math.floor(stageRatio * 40)}, ${0.35 + flicker * 0.25})`;
       ctx.beginPath();
-      ctx.moveTo(1.5, -4.0);
-      ctx.lineTo(2.0, -5.1);
-      ctx.lineTo(1.3, -4.2);
-      ctx.closePath();
+      ctx.ellipse(sx, sy, 0.22 + stageRatio * 0.18, 0.32 + stageRatio * 0.22, angle, 0, Math.PI * 2);
       ctx.fill();
     }
   }
 
-  if (stage >= 15) {
-    ctx.fillStyle = stage >= 19 ? "#ff8bc8" : "#f6c3ff";
-    ctx.beginPath();
-    ctx.arc(0, -3.4, 0.45, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  if (stage >= 11) {
-    ctx.fillStyle = stage >= 18 ? "#471019" : "#6b1e25";
-    ctx.fillRect(-1.5, -2.0, 3.0, 0.95);
-    ctx.fillStyle = "#fbeef0";
-    ctx.beginPath();
-    ctx.moveTo(-1.3, -1.2);
-    ctx.lineTo(-0.8, -1.6);
-    ctx.lineTo(-0.3, -1.2);
-    ctx.lineTo(0.2, -1.6);
-    ctx.lineTo(0.7, -1.2);
-    ctx.lineTo(1.2, -1.6);
-    ctx.lineTo(1.2, -1.05);
-    ctx.lineTo(-1.3, -1.05);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  if (stage >= 12) {
-    const eyeColor = stage >= 19 ? "#ff822f" : "#f6f2ff";
-    ctx.fillStyle = eyeColor;
-    ctx.beginPath();
-    ctx.ellipse(0, -1.0, 0.9, 0.55, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = stage >= 19 ? "#2e0715" : "#3f1455";
-    ctx.beginPath();
-    ctx.arc(0, -1.0, 0.35, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  if (stage >= 16) {
-    ctx.fillStyle = stage >= 20 ? "#ff4b8a" : "#ed7cff";
-    ctx.beginPath();
-    ctx.arc(-0.9, -1.6, 0.28, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(0.9, -1.6, 0.28, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.save();
-  const pumpOffset = shooting ? -0.25 : 0;
-  ctx.translate(1.55, 0.35);
-  ctx.fillStyle = "#1b1410";
-  ctx.fillRect(-0.6, -1.8, 1.0, 3.6);
-  ctx.fillStyle = "#4b2f15";
-  ctx.fillRect(-0.6, -1.1, 4.2, 1.05);
-  ctx.fillStyle = "#825125";
-  ctx.fillRect(1.1 + pumpOffset, -1.15, 1.6, 1.1);
-  ctx.fillStyle = "#d6cebf";
-  ctx.fillRect(3.4, -0.95, 1.6, 0.68);
-  ctx.fillStyle = "#0f0f0f";
-  ctx.fillRect(-0.4, 1.05, 3.4, 0.38);
-  ctx.restore();
-
-  if (stage >= 20) {
+  if (stage >= 9) {
     ctx.save();
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = "#ff2f8f";
+    ctx.globalAlpha = 0.25 + stageRatio * 0.25;
+    ctx.strokeStyle = stage >= 17 ? "rgba(255,214,96,0.8)" : "rgba(194,178,255,0.7)";
+    ctx.lineWidth = 0.35 + stageRatio * 0.3;
     ctx.beginPath();
-    ctx.arc(0, 0.2, 4.4, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(0, -0.2, 2.4 + stageRatio * 0.9, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -2148,38 +2427,117 @@ function drawPreySprite(prey, x, y) {
     ctx.stroke();
     ctx.restore();
   }
-  ctx.scale(2.4, 2.4);
+  const scaleFactor = Math.max(0.78, Math.min(1.38, 1 + (prey.radius - 14) * 0.045));
+  ctx.scale(2.3 * scaleFactor, 2.3 * scaleFactor);
+  const wobble = Math.sin((prey.animTimer || 0) / 18) * 0.12;
+  const shadowWidth = 2.4 + (scaleFactor - 1) * 1.1;
+  const shadowHeight = 1.15 + (scaleFactor - 1) * 0.45;
   ctx.fillStyle = "rgba(0,0,0,0.32)";
   ctx.beginPath();
-  ctx.ellipse(0, 2.2, 2.6, 1.2, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 2.2, shadowWidth, shadowHeight, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = prey.color || "#7befa2";
-  const wobble = Math.sin((prey.animTimer || 0) / 18) * 0.12;
-  ctx.beginPath();
-  ctx.moveTo(-1.8, -1.4);
-  ctx.quadraticCurveTo(0, -2.4 - wobble, 1.8, -1.4);
-  ctx.quadraticCurveTo(2.2, 0.6 + wobble, 0, 2.0);
-  ctx.quadraticCurveTo(-2.2, 0.6 - wobble, -1.8, -1.4);
-  ctx.fill();
+  const variant = prey.variant;
+  const bodyColor = prey.color || "#7befa2";
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(-1.1, -0.6, 0.7, 0.7);
-  ctx.fillRect(0.4, -0.6, 0.7, 0.7);
-  ctx.fillStyle = "#1a1a1a";
-  ctx.fillRect(-0.9, -0.45, 0.3, 0.3);
-  ctx.fillRect(0.55, -0.45, 0.3, 0.3);
+  if (variant === "spritelings") {
+    ctx.save();
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = "rgba(174, 255, 219, 0.65)";
+    ctx.beginPath();
+    ctx.ellipse(-1.6, -0.4, 1.6, 0.85, -0.45, 0, Math.PI * 2);
+    ctx.ellipse(1.6, -0.4, 1.6, 0.85, 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
 
-  ctx.fillStyle = "#3c6a36";
-  ctx.beginPath();
-  ctx.moveTo(-1.6, 0.4);
-  ctx.quadraticCurveTo(0, 1.6 + wobble, 1.6, 0.4);
-  ctx.quadraticCurveTo(0.2, 2.4, -1.6, 0.4);
-  ctx.fill();
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(-1.2, -1.2);
+    ctx.quadraticCurveTo(0, -1.9 - wobble * 0.8, 1.2, -1.2);
+    ctx.quadraticCurveTo(1.5, 0.2 + wobble, 0, 1.4);
+    ctx.quadraticCurveTo(-1.5, 0.2 - wobble, -1.2, -1.2);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-0.5, -0.55, 0.32, 0.42);
+    ctx.fillRect(0.16, -0.55, 0.32, 0.42);
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(-0.42, -0.45, 0.18, 0.18);
+    ctx.fillRect(0.22, -0.45, 0.18, 0.18);
+
+    ctx.fillStyle = "#87ffd1";
+    ctx.beginPath();
+    ctx.moveTo(0, 1.3);
+    ctx.quadraticCurveTo(0.6, 2.3, 0, 2.8);
+    ctx.quadraticCurveTo(-0.6, 2.3, 0, 1.3);
+    ctx.fill();
+  } else if (variant === "boulderback") {
+    ctx.fillStyle = "#1d1811";
+    ctx.beginPath();
+    ctx.moveTo(-2.2, -1.4);
+    ctx.quadraticCurveTo(0, -2.7 - wobble * 0.5, 2.2, -1.4);
+    ctx.quadraticCurveTo(3.0, 1.1 + wobble * 0.4, 0, 2.9);
+    ctx.quadraticCurveTo(-3.0, 1.1 - wobble * 0.4, -2.2, -1.4);
+    ctx.fill();
+
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(-1.8, -1.2);
+    ctx.quadraticCurveTo(0, -2.2 - wobble * 0.4, 1.8, -1.2);
+    ctx.quadraticCurveTo(2.4, 1.0 + wobble * 0.2, 0, 2.0);
+    ctx.quadraticCurveTo(-2.4, 1.0 - wobble * 0.2, -1.8, -1.2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(62, 47, 32, 0.65)";
+    ctx.lineWidth = 0.25;
+    ctx.beginPath();
+    ctx.moveTo(-1.6, -0.8);
+    ctx.quadraticCurveTo(-0.4, -1.6, 0, -1.0);
+    ctx.quadraticCurveTo(0.6, -0.4, 1.5, -0.8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-1.0, 0.1);
+    ctx.quadraticCurveTo(-0.2, 0.6, -0.4, 1.2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0.6, 0.4);
+    ctx.quadraticCurveTo(0.8, 1.0, 0.3, 1.6);
+    ctx.stroke();
+
+    ctx.fillStyle = "#ffecc0";
+    ctx.fillRect(-0.8, -0.2, 0.5, 0.5);
+    ctx.fillRect(0.4, -0.2, 0.5, 0.5);
+    ctx.fillStyle = "#312313";
+    ctx.fillRect(-0.7, -0.1, 0.24, 0.24);
+    ctx.fillRect(0.5, -0.1, 0.24, 0.24);
+  } else {
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(-1.8, -1.4);
+    ctx.quadraticCurveTo(0, -2.4 - wobble, 1.8, -1.4);
+    ctx.quadraticCurveTo(2.2, 0.6 + wobble, 0, 2.0);
+    ctx.quadraticCurveTo(-2.2, 0.6 - wobble, -1.8, -1.4);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-1.1, -0.6, 0.7, 0.7);
+    ctx.fillRect(0.4, -0.6, 0.7, 0.7);
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(-0.9, -0.45, 0.3, 0.3);
+    ctx.fillRect(0.55, -0.45, 0.3, 0.3);
+
+    ctx.fillStyle = "#3c6a36";
+    ctx.beginPath();
+    ctx.moveTo(-1.6, 0.4);
+    ctx.quadraticCurveTo(0, 1.6 + wobble, 1.6, 0.4);
+    ctx.quadraticCurveTo(0.2, 2.4, -1.6, 0.4);
+    ctx.fill();
+  }
 
   ctx.restore();
 
-  const barWidth = 40;
+  const baseBarWidth = 34 + Math.max(0, prey.radius - 14) * 1.5;
+  const barWidth = Math.max(28, Math.min(52, baseBarWidth));
   const barHeight = 5;
   const healthRatio = Math.max(prey.health / prey.maxHealth, 0);
   ctx.fillStyle = "rgba(0,0,0,0.55)";
@@ -2410,7 +2768,7 @@ function drawMinimap() {
     }
   }
 
-  ammoDrops.forEach((drop) => {
+  manaDrops.forEach((drop) => {
     minimapCtx.fillStyle = "#62f2ff";
     minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
   });
@@ -2448,7 +2806,7 @@ function drawCanvasHUD() {
   ctx.fillStyle = "#f2f2f2";
   ctx.font = "12px 'Press Start 2P', monospace";
   ctx.fillText(`HP ${Math.round(player.health)}/${Math.round(player.maxHealth)}`, 24, 32);
-  ctx.fillText(`AM ${player.ammo.toString().padStart(3, "0")}`, 24, 52);
+  ctx.fillText(`MN ${player.mana.toString().padStart(3, "0")}`, 24, 52);
   ctx.fillText(`HN ${Math.floor(player.hunger).toString().padStart(3, "0")}`, 120, 32);
   const elapsed = state.over
     ? state.durationWhenOver
@@ -2713,7 +3071,7 @@ function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
     const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
     const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
     const key = `${tileX},${tileY}`;
-    if (ammoUsedPositions.has(key) || healthUsedPositions.has(key) || meatUsedPositions.has(key)) continue;
+    if (manaUsedPositions.has(key) || healthUsedPositions.has(key) || meatUsedPositions.has(key)) continue;
     const x = tileX * CELL_SIZE + CELL_SIZE / 2;
     const y = tileY * CELL_SIZE + CELL_SIZE / 2;
     if (Math.hypot(x - player.x, y - player.y) >= minDistance) {
@@ -2813,7 +3171,7 @@ function renderShareCard(minutes, seconds) {
   shareCtx.fillStyle = "#9d9d9d";
   shareCtx.fillText(`Time ${minutes}:${seconds}`, width / 2, 160);
   shareCtx.fillText(`Kills ${state.kills.toString().padStart(3, "0")}`, width / 2, 200);
-  shareCtx.fillText(`Ammo ${player.ammo.toString().padStart(3, "0")}`, width / 2, 240);
+  shareCtx.fillText(`Mana ${player.mana.toString().padStart(3, "0")}`, width / 2, 240);
   shareCtx.font = "12px 'Press Start 2P', monospace";
   shareCtx.fillStyle = "#666666";
   shareCtx.fillText("#DungeonRun", width / 2, height - 48);

@@ -31,7 +31,7 @@ body {
 }
 
 .game-shell {
-  width: min(96vw, 1000px);
+  width: min(96vw, 1200px);
   position: relative;
 }
 
