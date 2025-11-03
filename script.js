@@ -152,6 +152,18 @@ const DECOR_ANIM_SETTINGS = {
     sparkleColor: "rgba(120,180,255,0.45)",
     sparkleScale: 1.4,
   },
+  home_bed: { base: 0.96, alpha: 0.015, wobble: 0.18 },
+  home_potion_table: {
+    base: 0.94,
+    alpha: 0.04,
+    wobble: 0.3,
+    sparkle: true,
+    sparkleColor: "rgba(110,200,255,0.35)",
+    sparkleScale: 1.1,
+  },
+  home_lounge: { base: 0.95, alpha: 0.02, wobble: 0.16 },
+  home_rug: { base: 0.97, alpha: 0.012, wobble: 0.08 },
+  home_books: { base: 0.95, alpha: 0.02, wobble: 0.14 },
 };
 
 const DECOR_GROUPS = {
@@ -1476,12 +1488,19 @@ function drawPickupSprite(x, y, type, hoverOffset = 0) {
   ctx.translate(x, y + hoverOffset);
   ctx.scale(PICKUP_SCALE, PICKUP_SCALE);
 
-  if (type === "mana") {
-    ctx.fillStyle = "#b8c5ff";
+  if (type === "mana" || type === "health") {
+    const glassColor = type === "mana" ? "#dfe6ff" : "#ffe4e6";
+    const liquidColor = type === "mana" ? "#2d5bff" : "#ff4d6d";
+    const corkColor = "#8f5a2e";
+    const rimColor = type === "mana" ? "#b8c5ff" : "#ffc7d1";
+    const highlightColor =
+      type === "mana" ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.38)";
+
+    ctx.fillStyle = rimColor;
     ctx.fillRect(-1.2, -3.4, 2.4, 0.8);
-    ctx.fillStyle = "#8f5a2e";
+    ctx.fillStyle = corkColor;
     ctx.fillRect(-1.0, -3.8, 2.0, 0.6);
-    ctx.fillStyle = "#dfe6ff";
+    ctx.fillStyle = glassColor;
     ctx.beginPath();
     ctx.moveTo(-2.3, -2.4);
     ctx.quadraticCurveTo(-2.6, 0.4, -1.2, 2.2);
@@ -1490,7 +1509,7 @@ function drawPickupSprite(x, y, type, hoverOffset = 0) {
     ctx.quadraticCurveTo(0, -3.2, -2.3, -2.4);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "#2d5bff";
+    ctx.fillStyle = liquidColor;
     ctx.beginPath();
     ctx.moveTo(-1.9, -1.2);
     ctx.quadraticCurveTo(-2.0, 1.6, -0.8, 2.1);
@@ -1498,7 +1517,7 @@ function drawPickupSprite(x, y, type, hoverOffset = 0) {
     ctx.quadraticCurveTo(2.0, 1.6, 1.9, -1.2);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.fillStyle = highlightColor;
     ctx.beginPath();
     ctx.moveTo(-1.4, -1.6);
     ctx.quadraticCurveTo(-1.6, 0.0, -0.6, 0.8);
@@ -1797,6 +1816,83 @@ function drawDecorationSprite(x, y, decoration) {
       ctx.fillRect(-0.3, -1.4, 0.6, 2.8);
       ctx.fillRect(-1.1, -0.4, 2.2, 0.6);
       break;
+    case "home_bed":
+      ctx.fillStyle = "#2e1d1a";
+      ctx.fillRect(-3.0, -1.6, 6.0, 3.2);
+      ctx.fillStyle = "#3c2724";
+      ctx.fillRect(-2.7, -1.3, 5.4, 2.6);
+      ctx.fillStyle = "#99b9ff";
+      ctx.fillRect(-2.4, -1.0, 1.9, 1.4);
+      ctx.fillStyle = "#4f65c6";
+      ctx.fillRect(-0.5, -1.0, 3.2, 2.2);
+      ctx.fillStyle = "#233275";
+      ctx.fillRect(-0.5, 0.6, 3.2, 0.6);
+      break;
+    case "home_potion_table":
+      ctx.fillStyle = "#412b24";
+      ctx.fillRect(-2.5, -1.0, 5.0, 2.2);
+      ctx.fillRect(-2.8, 1.0, 0.8, 2.2);
+      ctx.fillRect(2.0, 1.0, 0.8, 2.2);
+      ctx.fillStyle = "#d9b376";
+      ctx.fillRect(-2.3, -1.3, 4.6, 0.6);
+      ctx.fillStyle = "#7ad8ff";
+      ctx.beginPath();
+      ctx.ellipse(-1.3, -0.3, 0.6, 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#8e5cff";
+      ctx.beginPath();
+      ctx.ellipse(0.2, -0.4, 0.55, 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffd966";
+      ctx.beginPath();
+      ctx.ellipse(1.5, -0.5, 0.5, 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f2f2f2";
+      ctx.fillRect(-1.5, -1.6, 0.5, 0.6);
+      ctx.fillRect(0.0, -1.6, 0.45, 0.6);
+      ctx.fillRect(1.3, -1.6, 0.45, 0.6);
+      break;
+    case "home_lounge":
+      ctx.fillStyle = "#2a1b2d";
+      ctx.fillRect(-3.2, -1.2, 6.4, 2.8);
+      ctx.fillStyle = "#4a2f58";
+      ctx.fillRect(-3.0, -1.0, 6.0, 2.4);
+      ctx.fillStyle = "#613e75";
+      ctx.fillRect(-2.6, -0.6, 5.2, 1.6);
+      ctx.fillStyle = "#2e1c39";
+      ctx.fillRect(-3.0, 1.4, 0.8, 1.8);
+      ctx.fillRect(2.2, 1.4, 0.8, 1.8);
+      break;
+    case "home_rug":
+      ctx.fillStyle = "#2b203e";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 3.4, 2.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#8d66ff";
+      ctx.lineWidth = 0.3;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.6, 1.5, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = "#f0b45c";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 1.6, 0.95, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case "home_books":
+      ctx.fillStyle = "#3a2416";
+      ctx.fillRect(-2.4, -2.2, 4.8, 4.4);
+      ctx.fillStyle = "#24160e";
+      ctx.fillRect(-2.6, -2.4, 5.2, 0.5);
+      ctx.fillRect(-2.6, 1.9, 5.2, 0.5);
+      ctx.fillStyle = "#d85f6a";
+      ctx.fillRect(-2.0, -1.6, 0.8, 3.0);
+      ctx.fillStyle = "#6fd0c8";
+      ctx.fillRect(-0.9, -1.2, 0.9, 2.6);
+      ctx.fillStyle = "#f3d26d";
+      ctx.fillRect(0.3, -0.8, 0.8, 2.2);
+      ctx.fillStyle = "#8b6cff";
+      ctx.fillRect(1.6, -1.4, 0.7, 2.8);
+      break;
     default:
       ctx.fillStyle = "#322c27";
       ctx.fillRect(-1.0, -1.0, 2.0, 2.0);
@@ -1966,28 +2062,160 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
   const stage = Math.min(player.mutationStage || 0, MAX_MUTATION_STAGE);
   const stageRatio = stage / MAX_MUTATION_STAGE;
+  const mutationPhase = stage >= 18 ? 3 : stage >= 12 ? 2 : stage >= 6 ? 1 : 0;
   const walkPhase = frame % 4;
 
-  const robeColor = stage >= 15 ? "#362971" : stage >= 9 ? "#3d3fa2" : stage >= 4 ? "#4d56c8" : "#765438";
-  const robeHighlight = stage >= 15 ? "#4b3ba2" : stage >= 9 ? "#5055c4" : stage >= 4 ? "#6673dc" : "#8f6d49";
-  const trimColor = stage >= 12 ? "#d7d0ff" : stage >= 6 ? "#b7caff" : "#cfb582";
-  const sashColor = stage >= 16 ? "#ff9557" : stage >= 8 ? "#e2c46a" : "#ba8141";
-  const gloveColor = stage >= 10 ? "#7568d8" : stage >= 4 ? "#5f56c1" : "#8b6b45";
-  const hatBase = stage >= 18 ? "#f4d88b" : stage >= 12 ? "#e5c46a" : stage >= 6 ? "#d4b05c" : "#c59b4e";
-  const hatShadow = stage >= 18 ? "#cda962" : stage >= 12 ? "#b8944d" : stage >= 6 ? "#a27d3f" : "#8f6e36";
-  const hatHighlight = stage >= 18 ? "#fff0c5" : stage >= 12 ? "#f9e5ae" : stage >= 6 ? "#efd592" : "#e3c27a";
-  const headColor = "#06050c";
-  const faceGlow = `rgba(190, 210, 255, ${0.18 + stageRatio * 0.12})`;
-  const eyeColor = "#ffffff";
-  const eyeGlow = `rgba(255, 255, 255, ${0.4 + stageRatio * 0.22})`;
+  let robeColor;
+  let robeHighlight;
+  let trimColor;
+  let sashColor;
+  let gloveColor;
+  let hatBase;
+  let hatShadow;
+  let hatHighlight;
+  let headColor;
+  let faceGlowColor;
+  let faceGlowAlphaBase;
+  let faceGlowAlphaBonus;
+  let eyeColor;
+  let eyeGlowColor;
+  let hornColor;
+  let clawColor;
+  let fangColor;
+  let sparkleColor;
+  let sparkleSecondaryColor;
+  let sparkleAlphaBias;
+  let staffWoodColor;
+  let staffCapColor;
+  let orbCoreColor;
+  let staffAuraStroke;
+
+  switch (mutationPhase) {
+    case 0:
+      robeColor = "#765438";
+      robeHighlight = "#8f6d49";
+      trimColor = "#cfb582";
+      sashColor = "#ba8141";
+      gloveColor = "#8b6b45";
+      hatBase = "#c59b4e";
+      hatShadow = "#8f6e36";
+      hatHighlight = "#e3c27a";
+      headColor = "#06050c";
+      faceGlowColor = "190, 210, 255";
+      faceGlowAlphaBase = 0.18;
+      faceGlowAlphaBonus = 0.12;
+      eyeColor = "#ffffff";
+      eyeGlowColor = "255, 255, 255";
+      hornColor = "#d8c372";
+      clawColor = "#6f4d2b";
+      fangColor = "#ffe6c6";
+      sparkleColor = "rgba(255, 248, 230, 0.9)";
+      sparkleSecondaryColor = "rgba(247, 226, 160, 0.9)";
+      sparkleAlphaBias = 0.26;
+      staffWoodColor = "#5b3b22";
+      staffCapColor = "#3f3279";
+      orbCoreColor = "#ffba26";
+      staffAuraStroke = "rgba(255,233,110,0.75)";
+      break;
+    case 1:
+      robeColor = "#4d56c8";
+      robeHighlight = "#6673dc";
+      trimColor = "#b7caff";
+      sashColor = "#e2c46a";
+      gloveColor = "#5f56c1";
+      hatBase = "#d4b05c";
+      hatShadow = "#a27d3f";
+      hatHighlight = "#efd592";
+      headColor = "#04040e";
+      faceGlowColor = "182, 213, 255";
+      faceGlowAlphaBase = 0.24;
+      faceGlowAlphaBonus = 0.16;
+      eyeColor = "#f7fbff";
+      eyeGlowColor = "210, 235, 255";
+      hornColor = "#b3a2ff";
+      clawColor = "#42318c";
+      fangColor = "#fff1d7";
+      sparkleColor = "rgba(180, 225, 255, 0.95)";
+      sparkleSecondaryColor = "rgba(120, 180, 255, 0.85)";
+      sparkleAlphaBias = 0.3;
+      staffWoodColor = "#4a2a42";
+      staffCapColor = "#5c54c4";
+      orbCoreColor = "#ffc640";
+      staffAuraStroke = "rgba(255,220,150,0.78)";
+      break;
+    case 2:
+      robeColor = "#37225c";
+      robeHighlight = "#4a2f77";
+      trimColor = "#9d82ec";
+      sashColor = "#ff7b4d";
+      gloveColor = "#3a2561";
+      hatBase = "#4b336a";
+      hatShadow = "#2a1d42";
+      hatHighlight = "#7c5bb2";
+      headColor = "#040210";
+      faceGlowColor = "164, 190, 255";
+      faceGlowAlphaBase = 0.28;
+      faceGlowAlphaBonus = 0.2;
+      eyeColor = "#fffbf1";
+      eyeGlowColor = "255, 150, 180";
+      hornColor = "#f6b257";
+      clawColor = "#5f274a";
+      fangColor = "#ffddb4";
+      sparkleColor = "rgba(255, 160, 210, 0.92)";
+      sparkleSecondaryColor = "rgba(255, 110, 170, 0.88)";
+      sparkleAlphaBias = 0.34;
+      staffWoodColor = "#3c1b3d";
+      staffCapColor = "#8b77e6";
+      orbCoreColor = "#ff5fb0";
+      staffAuraStroke = "rgba(255,120,190,0.82)";
+      break;
+    default:
+      robeColor = "#24112f";
+      robeHighlight = "#32183f";
+      trimColor = "#5f1d36";
+      sashColor = "#8c1c3d";
+      gloveColor = "#2d0f28";
+      hatBase = null;
+      hatShadow = null;
+      hatHighlight = null;
+      headColor = "#0f020d";
+      faceGlowColor = "120, 12, 40";
+      faceGlowAlphaBase = 0.36;
+      faceGlowAlphaBonus = 0.24;
+      eyeColor = "#ffe7f5";
+      eyeGlowColor = "255, 50, 120";
+      hornColor = "#ff6f6f";
+      clawColor = "#4d0f24";
+      fangColor = "#ffd7c0";
+      sparkleColor = "rgba(140, 255, 180, 0.95)";
+      sparkleSecondaryColor = "rgba(90, 220, 140, 0.88)";
+      sparkleAlphaBias = 0.4;
+      staffWoodColor = "#22060e";
+      staffCapColor = "#4f102a";
+      orbCoreColor = "#ff3f6a";
+      staffAuraStroke = "rgba(255,60,120,0.9)";
+      break;
+  }
+
+  const faceGlow = `rgba(${faceGlowColor}, ${faceGlowAlphaBase + stageRatio * faceGlowAlphaBonus})`;
+  const eyeGlow = `rgba(${eyeGlowColor}, ${0.42 + stageRatio * 0.3})`;
   const eyePulse = 0.04 + Math.sin(animationTime * 0.005 + walkPhase) * 0.03;
+  const showHat = hatBase !== null;
+  const hatTattered = mutationPhase >= 2 && mutationPhase < 3;
+  const showHorns = mutationPhase >= 1;
+  const largeHorns = mutationPhase >= 2;
+  const showFangs = mutationPhase >= 2;
+  const showClaws = mutationPhase >= 1;
+  const backSpikes = mutationPhase >= 3;
 
   const robeWidth = isSide ? 2.3 : 2.8;
   const robeBaseY = 3.15;
   const belly = Math.sin((walkPhase + (shooting ? 0.5 : 0)) * (Math.PI / 2)) * 0.12;
   const sway = Math.sin(animationTime * 0.0025) * 0.12;
-  const staffGlow = shooting ? 0.36 : 0.22 + stageRatio * 0.12;
-  const staffShift = shooting ? 0.55 : 0.1;
+  const staffGlow = shooting
+    ? 0.36 + mutationPhase * 0.08
+    : 0.22 + stageRatio * 0.12 + mutationPhase * 0.06;
+  const staffShift = shooting ? 0.55 + mutationPhase * 0.08 : 0.1 + mutationPhase * 0.05;
   const staffBaseX = orientation === "back" ? 2.0 : orientation === "side" ? 2.4 : 2.8;
   const staffBaseY = orientation === "back" ? -1.6 : -1.4;
 
@@ -2001,7 +2229,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     } else {
       ctx.rotate(0.05);
     }
-    ctx.fillStyle = "#5b3b22";
+    ctx.fillStyle = staffWoodColor;
     ctx.beginPath();
     ctx.moveTo(-0.35, -0.3);
     ctx.quadraticCurveTo(-0.65, 2.0, -0.25, 3.6);
@@ -2012,27 +2240,147 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = stage >= 12 ? "#8b77e6" : stage >= 4 ? "#5c54c4" : "#3f3279";
+    if (mutationPhase >= 2) {
+      ctx.fillStyle = clawColor;
+      ctx.beginPath();
+      ctx.moveTo(-0.55, 3.8);
+      ctx.lineTo(-1.45, 5.4);
+      ctx.lineTo(-0.35, 5.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0.45, 5.6);
+      ctx.lineTo(1.4, 7.2);
+      ctx.lineTo(0.6, 7.0);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    ctx.fillStyle = staffCapColor;
     ctx.beginPath();
     ctx.ellipse(0, -0.8, 0.65, 0.75, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const orbCore = stage >= 16 ? "#ffd95f" : stage >= 8 ? "#ffcd40" : "#ffba26";
-    ctx.fillStyle = orbCore;
+    ctx.fillStyle = orbCoreColor;
     ctx.beginPath();
     ctx.arc(0, -1.4, 1.05 + staffGlow * 0.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = "rgba(255,233,110,0.75)";
+    ctx.strokeStyle = staffAuraStroke;
     ctx.lineWidth = 0.22;
     ctx.beginPath();
     ctx.arc(0, -1.4, 1.3 + staffGlow * 0.45, 0, Math.PI * 2);
     ctx.stroke();
-    if (stage >= 18) {
-      ctx.globalAlpha = 0.65 + staffGlow * 0.55;
-      ctx.strokeStyle = "rgba(255,214,96,0.65)";
+    if (mutationPhase >= 3) {
+      ctx.globalAlpha = 0.6 + staffGlow * 0.6;
+      ctx.strokeStyle = "rgba(255,80,130,0.7)";
       ctx.beginPath();
-      ctx.arc(0, -1.4, 1.8 + staffGlow, 0, Math.PI * 2);
+      ctx.arc(0, -1.4, 2.1 + staffGlow * 0.9, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(255,60,120,0.3)";
+      ctx.beginPath();
+      ctx.arc(0.8, -2.2, 0.6, 0, Math.PI * 2);
+      ctx.arc(-0.9, -2.3, 0.5, 0, Math.PI * 2);
+      ctx.fill("evenodd");
+    } else if (mutationPhase >= 2) {
+      ctx.globalAlpha = 0.5 + staffGlow * 0.4;
+      ctx.strokeStyle = "rgba(255,140,190,0.55)";
+      ctx.beginPath();
+      ctx.arc(0, -1.4, 1.8 + staffGlow * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  };
+
+  const drawFrontHorns = () => {
+    if (!showHorns) return;
+    ctx.save();
+    ctx.fillStyle = hornColor;
+    const hornStretch = largeHorns ? 1.1 : 0.8;
+    const hornLift = largeHorns ? -4.9 - stageRatio * 0.4 : -4.3 - stageRatio * 0.25;
+    ctx.beginPath();
+    ctx.moveTo(-1.1, -2.8);
+    ctx.quadraticCurveTo(-1.9 * hornStretch, hornLift, -0.9, -3.1);
+    ctx.quadraticCurveTo(-0.7, -2.6, -1.1, -2.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(1.1, -2.8);
+    ctx.quadraticCurveTo(1.9 * hornStretch, hornLift, 0.9, -3.1);
+    ctx.quadraticCurveTo(0.7, -2.6, 1.1, -2.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.beginPath();
+    ctx.moveTo(-0.9, -3.6);
+    ctx.quadraticCurveTo(-0.7, hornLift + 1.0, -0.6, -3.1);
+    ctx.quadraticCurveTo(-0.7, -3.2, -0.9, -3.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0.9, -3.6);
+    ctx.quadraticCurveTo(0.7, hornLift + 1.0, 0.6, -3.1);
+    ctx.quadraticCurveTo(0.7, -3.2, 0.9, -3.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawSideHorns = () => {
+    if (!showHorns) return;
+    ctx.save();
+    ctx.fillStyle = hornColor;
+    const hornLift = largeHorns ? -4.7 - stageRatio * 0.38 : -4.1 - stageRatio * 0.24;
+    if (facing < 0) ctx.scale(-1, 1);
+    ctx.beginPath();
+    ctx.moveTo(-0.4, -2.6);
+    ctx.quadraticCurveTo(-1.6, hornLift, -0.6, -3.0);
+    ctx.quadraticCurveTo(-0.4, -2.5, -0.4, -2.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawBackHorns = () => {
+    if (!showHorns) return;
+    ctx.save();
+    ctx.fillStyle = hornColor;
+    const hornSpread = largeHorns ? 1.4 : 1.0;
+    const hornLift = largeHorns ? -4.8 - stageRatio * 0.38 : -4.1 - stageRatio * 0.24;
+    ctx.beginPath();
+    ctx.moveTo(-0.9 * hornSpread, -2.5);
+    ctx.quadraticCurveTo(-1.6 * hornSpread, hornLift, -0.3, -3.2);
+    ctx.quadraticCurveTo(-0.4, -2.7, -0.9 * hornSpread, -2.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0.9 * hornSpread, -2.5);
+    ctx.quadraticCurveTo(1.6 * hornSpread, hornLift, 0.3, -3.2);
+    ctx.quadraticCurveTo(0.4, -2.7, 0.9 * hornSpread, -2.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawBackSpines = () => {
+    if (!backSpikes) return;
+    ctx.save();
+    ctx.fillStyle = "rgba(255,90,150,0.45)";
+    for (let i = 0; i < 4; i += 1) {
+      const t = i / 3;
+      const angleOffset = Math.sin(animationTime * 0.003 + i * 1.4) * 0.15;
+      ctx.beginPath();
+      ctx.moveTo(0, 0.8 + t * 2.8);
+      ctx.quadraticCurveTo(
+        -0.6 + angleOffset,
+        -0.6 + t * 2.0,
+        0,
+        -0.2 + t * 3.2,
+      );
+      ctx.quadraticCurveTo(0.6 + angleOffset, -0.6 + t * 2.0, 0, 0.8 + t * 2.8);
+      ctx.closePath();
+      ctx.fill();
     }
     ctx.restore();
   };
@@ -2126,6 +2474,21 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.beginPath();
     ctx.ellipse(robeWidth - 0.5, 0.3 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (showClaws) {
+      ctx.fillStyle = clawColor;
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth + 0.6, 1.2 + belly * 0.4);
+      ctx.lineTo(-robeWidth - 0.2, 1.9 + belly * 0.5);
+      ctx.lineTo(-robeWidth + 0.3, 2.2 + belly * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(robeWidth - 0.6, 1.2 + belly * 0.4);
+      ctx.lineTo(robeWidth + 0.2, 1.9 + belly * 0.5);
+      ctx.lineTo(robeWidth - 0.3, 2.2 + belly * 0.45);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.fillStyle = headColor;
     ctx.beginPath();
@@ -2160,34 +2523,83 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.beginPath();
     ctx.ellipse(0.38, -2.18, 0.16, 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.save();
-    ctx.globalAlpha = 0.72;
-    ctx.fillStyle = hatShadow;
+    const pupilColor = mutationPhase >= 3 ? "#ff2a6a" : mutationPhase >= 2 ? "#2d0f45" : "#1b1b1b";
+    const pupilWidth = mutationPhase >= 2 ? 0.18 : 0.24;
+    const pupilHeight = mutationPhase >= 2 ? 0.62 : 0.36;
+    ctx.fillStyle = pupilColor;
     ctx.beginPath();
-    ctx.ellipse(0, -2.25, robeWidth + 0.7, 0.55, 0, 0, Math.PI * 2);
+    ctx.ellipse(-0.64, -2.0, pupilWidth, pupilHeight, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
-
-    ctx.fillStyle = hatBase;
     ctx.beginPath();
-    ctx.moveTo(-robeWidth - 0.5, -2.3);
-    ctx.quadraticCurveTo(-1.6, -3.3 - stageRatio * 0.4, -0.8, -4.6 - stageRatio * 0.5);
-    ctx.quadraticCurveTo(-0.1, -5.7 - stageRatio * 0.55, 1.1, -4.9 - stageRatio * 0.6);
-    ctx.quadraticCurveTo(2.6, -3.9 - stageRatio * 0.45, robeWidth + 0.8, -2.35);
-    ctx.quadraticCurveTo(0.4, -2.6, -robeWidth - 0.5, -2.3);
-    ctx.closePath();
+    ctx.ellipse(0.64, -2.0, pupilWidth, pupilHeight, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (showFangs) {
+      ctx.fillStyle = fangColor;
+      ctx.beginPath();
+      ctx.moveTo(-0.35, -1.42);
+      ctx.lineTo(-0.58, -0.8);
+      ctx.lineTo(-0.1, -1.05);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0.35, -1.42);
+      ctx.lineTo(0.58, -0.8);
+      ctx.lineTo(0.1, -1.05);
+      ctx.closePath();
+      ctx.fill();
+    }
 
-    ctx.fillStyle = hatHighlight;
-    ctx.globalAlpha = 0.55;
-    ctx.beginPath();
-    ctx.moveTo(-1.0, -4.3 - stageRatio * 0.45);
-    ctx.quadraticCurveTo(-0.5, -4.9 - stageRatio * 0.5, 0.6, -4.8 - stageRatio * 0.55);
-    ctx.quadraticCurveTo(1.5, -4.4 - stageRatio * 0.45, 0.9, -3.7 - stageRatio * 0.4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    drawFrontHorns();
+
+    if (showHat && hatShadow && hatBase && hatHighlight) {
+      ctx.save();
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = hatShadow;
+      ctx.beginPath();
+      ctx.ellipse(0, -2.25, robeWidth + 0.7, 0.55 + mutationPhase * 0.05, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = hatBase;
+      ctx.beginPath();
+      if (hatTattered) {
+        ctx.moveTo(-robeWidth - 0.6, -2.4);
+        ctx.quadraticCurveTo(-1.6, -3.3 - stageRatio * 0.5, -1.2, -4.2 - stageRatio * 0.5);
+        ctx.lineTo(-0.6, -4.9 - stageRatio * 0.6);
+        ctx.lineTo(-0.2, -4.0 - stageRatio * 0.4);
+        ctx.lineTo(0.2, -5.2 - stageRatio * 0.65);
+        ctx.lineTo(0.8, -4.1 - stageRatio * 0.4);
+        ctx.lineTo(1.2, -5.0 - stageRatio * 0.65);
+        ctx.quadraticCurveTo(2.6, -3.7 - stageRatio * 0.45, robeWidth + 0.9, -2.35);
+      } else {
+        ctx.moveTo(-robeWidth - 0.5, -2.3);
+        ctx.quadraticCurveTo(-1.6, -3.3 - stageRatio * 0.4, -0.8, -4.6 - stageRatio * 0.5);
+        ctx.quadraticCurveTo(-0.1, -5.7 - stageRatio * 0.55, 1.1, -4.9 - stageRatio * 0.6);
+        ctx.quadraticCurveTo(2.6, -3.9 - stageRatio * 0.45, robeWidth + 0.8, -2.35);
+      }
+      ctx.quadraticCurveTo(0.4, -2.6, -robeWidth - 0.5, -2.3);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = hatHighlight;
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      if (hatTattered) {
+        ctx.moveTo(-0.8, -4.3 - stageRatio * 0.45);
+        ctx.lineTo(-0.2, -5.0 - stageRatio * 0.5);
+        ctx.lineTo(0.4, -4.2 - stageRatio * 0.45);
+        ctx.lineTo(0.9, -4.6 - stageRatio * 0.5);
+        ctx.lineTo(0.3, -3.6 - stageRatio * 0.3);
+        ctx.closePath();
+      } else {
+        ctx.moveTo(-1.0, -4.3 - stageRatio * 0.45);
+        ctx.quadraticCurveTo(-0.5, -4.9 - stageRatio * 0.5, 0.6, -4.8 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(1.5, -4.4 - stageRatio * 0.45, 0.9, -3.7 - stageRatio * 0.4);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
 
     drawFeetFront();
   };
@@ -2222,6 +2634,15 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.beginPath();
     ctx.ellipse(robeWidth - 0.1, 0.1 + belly * 0.3, 0.75, 1.0, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (showClaws) {
+      ctx.fillStyle = clawColor;
+      ctx.beginPath();
+      ctx.moveTo(robeWidth - 0.45, 0.9 + belly * 0.3);
+      ctx.lineTo(robeWidth + 0.2, 1.45 + belly * 0.35);
+      ctx.lineTo(robeWidth - 0.2, 1.9 + belly * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.fillStyle = headColor;
     ctx.beginPath();
@@ -2257,34 +2678,73 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.beginPath();
     ctx.ellipse(1.02, -1.98, 0.12, 0.16, 0, 0, Math.PI * 2);
     ctx.fill();
-
-    ctx.fillStyle = hatShadow;
-    ctx.save();
-    ctx.globalAlpha = 0.7;
+    const sidePupilColor = mutationPhase >= 3 ? "#ff2a6a" : mutationPhase >= 2 ? "#321346" : "#1b1b1b";
+    const sidePupilWidth = mutationPhase >= 2 ? 0.12 : 0.18;
+    const sidePupilHeight = mutationPhase >= 2 ? 0.5 : 0.3;
+    ctx.fillStyle = sidePupilColor;
     ctx.beginPath();
-    ctx.ellipse(0.1, -1.95, robeWidth + 0.55, 0.55, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.96, -1.9, sidePupilWidth, sidePupilHeight, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.restore();
+    if (showFangs) {
+      ctx.fillStyle = fangColor;
+      ctx.beginPath();
+      ctx.moveTo(0.35, -1.4);
+      ctx.lineTo(0.6, -0.85);
+      ctx.lineTo(0.05, -1.08);
+      ctx.closePath();
+      ctx.fill();
+    }
 
-    ctx.fillStyle = hatBase;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth, -2.2);
-    ctx.quadraticCurveTo(-0.8, -3.1 - stageRatio * 0.4, 0.3, -4.4 - stageRatio * 0.5);
-    ctx.quadraticCurveTo(1.1, -5.2 - stageRatio * 0.55, 2.2, -4.4 - stageRatio * 0.5);
-    ctx.quadraticCurveTo(2.9, -3.4 - stageRatio * 0.4, 2.4, -2.1);
-    ctx.quadraticCurveTo(0.8, -2.5, -robeWidth, -2.2);
-    ctx.closePath();
-    ctx.fill();
+    drawSideHorns();
 
-    ctx.fillStyle = hatHighlight;
-    ctx.globalAlpha = 0.55;
-    ctx.beginPath();
-    ctx.moveTo(0.2, -3.8 - stageRatio * 0.45);
-    ctx.quadraticCurveTo(1.0, -3.6 - stageRatio * 0.4, 1.6, -2.8 - stageRatio * 0.35);
-    ctx.quadraticCurveTo(0.8, -2.9, 0.2, -3.0 - stageRatio * 0.35);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    if (showHat && hatShadow && hatBase && hatHighlight) {
+      ctx.fillStyle = hatShadow;
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath();
+      ctx.ellipse(0.1, -1.95, robeWidth + 0.55, 0.55 + mutationPhase * 0.04, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = hatBase;
+      ctx.beginPath();
+      if (hatTattered) {
+        ctx.moveTo(-robeWidth, -2.2);
+        ctx.lineTo(-0.9, -3.1 - stageRatio * 0.42);
+        ctx.lineTo(-0.4, -3.7 - stageRatio * 0.5);
+        ctx.lineTo(-0.1, -4.6 - stageRatio * 0.58);
+        ctx.lineTo(0.2, -3.9 - stageRatio * 0.4);
+        ctx.lineTo(0.6, -4.8 - stageRatio * 0.58);
+        ctx.lineTo(1.2, -4.0 - stageRatio * 0.42);
+        ctx.lineTo(1.7, -4.8 - stageRatio * 0.54);
+        ctx.quadraticCurveTo(2.8, -3.4 - stageRatio * 0.4, 2.3, -2.05);
+      } else {
+        ctx.moveTo(-robeWidth, -2.2);
+        ctx.quadraticCurveTo(-0.8, -3.1 - stageRatio * 0.4, 0.3, -4.4 - stageRatio * 0.5);
+        ctx.quadraticCurveTo(1.1, -5.2 - stageRatio * 0.55, 2.2, -4.4 - stageRatio * 0.5);
+        ctx.quadraticCurveTo(2.9, -3.4 - stageRatio * 0.4, 2.4, -2.1);
+      }
+      ctx.quadraticCurveTo(0.8, -2.5, -robeWidth, -2.2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = hatHighlight;
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      if (hatTattered) {
+        ctx.moveTo(0.05, -3.7 - stageRatio * 0.45);
+        ctx.lineTo(0.6, -3.5 - stageRatio * 0.38);
+        ctx.lineTo(0.3, -2.9 - stageRatio * 0.32);
+        ctx.closePath();
+      } else {
+        ctx.moveTo(0.2, -3.8 - stageRatio * 0.45);
+        ctx.quadraticCurveTo(1.0, -3.6 - stageRatio * 0.4, 1.6, -2.8 - stageRatio * 0.35);
+        ctx.quadraticCurveTo(0.8, -2.9, 0.2, -3.0 - stageRatio * 0.35);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
 
     drawFeetSide();
   };
@@ -2300,47 +2760,52 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = robeHighlight;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth * 0.6, -0.7 - sway * 0.5);
-    ctx.quadraticCurveTo(-0.4, 1.0 + belly * 0.6, -0.6, 2.6);
-    ctx.quadraticCurveTo(0, 3.15, 0.6, 2.6);
-    ctx.quadraticCurveTo(0.4, 1.0 + belly * 0.6, robeWidth * 0.6, -0.7 - sway * 0.5);
-    ctx.quadraticCurveTo(0, -1.9 - sway * 0.25, -robeWidth * 0.6, -0.7 - sway * 0.5);
-    ctx.closePath();
-    ctx.fill();
+    drawBackSpines();
+    drawBackHorns();
 
-    ctx.fillStyle = trimColor;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth * 0.5, 1.2 + belly * 0.4);
-    ctx.quadraticCurveTo(0, 2.3, robeWidth * 0.5, 1.2 + belly * 0.4);
-    ctx.quadraticCurveTo(0, 2.8, -robeWidth * 0.5, 1.2 + belly * 0.4);
-    ctx.closePath();
-    ctx.fill();
+    if (showHat && hatBase && hatShadow && hatHighlight) {
+      ctx.fillStyle = hatBase;
+      ctx.beginPath();
+      if (hatTattered) {
+        ctx.moveTo(-robeWidth - 0.5, -2.0);
+        ctx.lineTo(-1.2, -3.0 - stageRatio * 0.5);
+        ctx.lineTo(-0.8, -4.5 - stageRatio * 0.6);
+        ctx.lineTo(-0.1, -4.0 - stageRatio * 0.45);
+        ctx.lineTo(0.4, -5.2 - stageRatio * 0.6);
+        ctx.lineTo(1.0, -4.1 - stageRatio * 0.45);
+        ctx.lineTo(1.4, -4.9 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(robeWidth + 0.6, -2.1, robeWidth + 0.5, -1.9);
+      } else {
+        ctx.moveTo(-robeWidth - 0.4, -1.9);
+        ctx.quadraticCurveTo(-1.2, -3.1 - stageRatio * 0.45, -0.6, -4.8 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(0, -5.7 - stageRatio * 0.55, 0.7, -4.9 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(1.4, -3.6 - stageRatio * 0.45, robeWidth + 0.4, -1.9);
+      }
+      ctx.quadraticCurveTo(0, -2.6, -robeWidth - 0.4, -1.9);
+      ctx.closePath();
+      ctx.fill();
 
-    ctx.fillStyle = hatBase;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth - 0.4, -1.9);
-    ctx.quadraticCurveTo(-1.2, -3.1 - stageRatio * 0.45, -0.6, -4.8 - stageRatio * 0.55);
-    ctx.quadraticCurveTo(0, -5.7 - stageRatio * 0.55, 0.7, -4.9 - stageRatio * 0.55);
-    ctx.quadraticCurveTo(1.4, -3.6 - stageRatio * 0.45, robeWidth + 0.4, -1.9);
-    ctx.quadraticCurveTo(0, -2.6, -robeWidth - 0.4, -1.9);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = hatShadow;
-    ctx.beginPath();
-    ctx.ellipse(0, -1.7, robeWidth + 0.75, 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = hatHighlight;
-    ctx.globalAlpha = 0.55;
-    ctx.beginPath();
-    ctx.moveTo(-0.4, -4.7 - stageRatio * 0.55);
-    ctx.quadraticCurveTo(0.1, -5.1 - stageRatio * 0.55, 0.6, -4.6 - stageRatio * 0.5);
-    ctx.quadraticCurveTo(0.1, -4.4 - stageRatio * 0.45, -0.4, -4.2 - stageRatio * 0.4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
+      ctx.fillStyle = hatShadow;
+      ctx.beginPath();
+      ctx.ellipse(0, -1.7, robeWidth + 0.75, 0.7 + mutationPhase * 0.05, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = hatHighlight;
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      if (hatTattered) {
+        ctx.moveTo(-0.2, -4.6 - stageRatio * 0.55);
+        ctx.lineTo(0.3, -5.0 - stageRatio * 0.55);
+        ctx.lineTo(0.6, -4.2 - stageRatio * 0.45);
+        ctx.closePath();
+      } else {
+        ctx.moveTo(-0.4, -4.7 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(0.1, -5.1 - stageRatio * 0.55, 0.6, -4.6 - stageRatio * 0.5);
+        ctx.quadraticCurveTo(0.1, -4.4 - stageRatio * 0.45, -0.4, -4.2 - stageRatio * 0.4);
+        ctx.closePath();
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
 
     drawFeetFront();
   };
@@ -2351,17 +2816,26 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.globalCompositeOperation = "lighter";
     for (let i = 0; i < sparkleCount; i += 1) {
       const angle = animationTime * 0.003 + i * ((Math.PI * 2) / sparkleCount);
-      const radius = 2.2 + Math.sin(animationTime * 0.004 + i * 1.7) * 0.25 + stageRatio * 0.18;
+      const radius = 2.2 + Math.sin(animationTime * 0.004 + i * 1.7) * 0.25 + stageRatio * 0.18 + mutationPhase * 0.15;
       const xOffset = Math.cos(angle) * radius;
       const yOffset = Math.sin(angle) * (radius * 0.6) - 1.1;
       const sizeBase = 0.2 + stageRatio * 0.08;
-      const size = sizeBase + Math.sin(animationTime * 0.01 + i * 2.3) * 0.05;
+      const size = sizeBase + Math.sin(animationTime * 0.01 + i * 2.3) * (0.05 + mutationPhase * 0.015);
       ctx.save();
-      ctx.globalAlpha = 0.26 + stageRatio * 0.18 + Math.sin(animationTime * 0.006 + i) * 0.08;
-      ctx.fillStyle = stage >= 10 ? "rgba(180, 225, 255, 0.9)" : "rgba(255, 248, 230, 0.9)";
+      const alphaBase = sparkleAlphaBias + stageRatio * 0.18;
+      const alphaPulse = 0.08 + mutationPhase * 0.04;
+      ctx.globalAlpha = alphaBase + Math.sin(animationTime * 0.006 + i) * alphaPulse;
+      ctx.fillStyle = i % 2 === 0 ? sparkleColor : sparkleSecondaryColor;
       ctx.beginPath();
       ctx.ellipse(xOffset, yOffset, size, size * 0.6, angle, 0, Math.PI * 2);
       ctx.fill();
+      if (mutationPhase >= 3) {
+        ctx.globalAlpha *= 0.6;
+        ctx.fillStyle = "rgba(255,80,140,0.85)";
+        ctx.beginPath();
+        ctx.ellipse(xOffset * 0.9, yOffset * 0.9 - 0.2, size * 0.65, size * 0.45, angle * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
     ctx.restore();
@@ -2675,28 +3149,405 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
 
     ctx.restore();
   } else {
-    const palette = enemy.variant === "gnasher"
-      ? { body: "#f25858", shell: "#2d0a0a", eye: "#f9f9f9" }
-      : enemy.variant === "stalker"
-        ? { body: "#8b5cf6", shell: "#291c4d", eye: "#f9f9f9" }
-        : { body: "#f79d2a", shell: "#3b2610", eye: "#121212" };
+    const variant = enemy.variant;
+    const time = animationTime * 0.003;
     const wobble = Math.sin(enemy.animTimer / 10) * 0.2;
-    if (spawnProgress > 0) {
-      ctx.globalAlpha = 0.55 + (1 - spawnProgress) * 0.45;
+    const spawnFade = spawnProgress > 0 ? 0.55 + (1 - spawnProgress) * 0.45 : 1;
+
+    const drawDefault = () => {
+      ctx.fillStyle = "#3b2610";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.6, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f79d2a";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.2, 2.2, 1.8 + wobble * 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#251508";
+      ctx.beginPath();
+      ctx.moveTo(-1.4, -0.2);
+      ctx.lineTo(-0.6, 1.6 + wobble * 0.4);
+      ctx.lineTo(-2.0, 1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(1.4, -0.2);
+      ctx.lineTo(0.6, 1.6 + wobble * 0.4);
+      ctx.lineTo(2.0, 1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#fcd78e";
+      ctx.beginPath();
+      ctx.ellipse(-0.6, -1.0, 0.45, 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.6, -1.0, 0.45, 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1a0d06";
+      ctx.beginPath();
+      ctx.ellipse(-0.55, -1.0, 0.18, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.55, -1.0, 0.18, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const drawGnasher = () => {
+      const chomp = 0.6 + Math.sin(time * 2.4 + enemy.animTimer * 0.18) * 0.25;
+      ctx.save();
+      ctx.globalAlpha *= spawnFade;
+      if (enemy.isLunging) {
+        ctx.scale(1.12, 0.9);
+      }
+      ctx.fillStyle = "#2a0406";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.9, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f24c52";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.2, 2.4, 1.9 + chomp * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#140001";
+      ctx.beginPath();
+      ctx.moveTo(-2.3, -0.3);
+      ctx.quadraticCurveTo(0, 1.2 + chomp, 2.3, -0.3);
+      ctx.quadraticCurveTo(0, 1.0 + chomp * 0.6, -2.3, -0.5);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#fff3e6";
+      for (let i = -2; i <= 2; i += 1) {
+        const tx = i * 0.65;
+        ctx.beginPath();
+        ctx.moveTo(tx - 0.22, 0.0);
+        ctx.lineTo(tx + 0.22, 0.0);
+        ctx.lineTo(tx, 0.65 + chomp * 0.45);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#ffe7ec";
+      ctx.beginPath();
+      ctx.ellipse(-1.2, -1.1, 0.6, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.2, -1.1, 0.6, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#270206";
+      ctx.beginPath();
+      ctx.ellipse(-1.05, -1.1, 0.22, 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.05, -1.1, 0.22, 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.beginPath();
+      ctx.ellipse(-1.35, -1.25, 0.22, 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.35, -1.25, 0.22, 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#5d0f18";
+      for (let i = -3; i <= 3; i += 1) {
+        const px = i * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(px, -2.2);
+        ctx.lineTo(px + 0.3, -1.5);
+        ctx.lineTo(px - 0.3, -1.5);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#3c0b12";
+      ctx.beginPath();
+      ctx.ellipse(-1.6, 1.2, 0.6, 1.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.6, 1.2, 0.6, 1.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#180305";
+      ctx.beginPath();
+      ctx.ellipse(-1.6, 2.4, 0.65, 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.6, 2.4, 0.65, 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    const drawStalker = () => {
+      const sway = Math.sin(time * 2 + enemy.animTimer * 0.1) * 0.2;
+      ctx.save();
+      ctx.globalAlpha *= spawnFade;
+      ctx.translate(0, sway);
+      ctx.fillStyle = "#120724";
+      ctx.beginPath();
+      ctx.moveTo(0, -2.8);
+      ctx.quadraticCurveTo(-1.8, -1.6, -1.4, 0.2);
+      ctx.quadraticCurveTo(-1.0, 2.6, -0.2, 3.1);
+      ctx.quadraticCurveTo(0.2, 3.3, 0.8, 3.1);
+      ctx.quadraticCurveTo(1.6, 1.8, 1.4, -0.2);
+      ctx.quadraticCurveTo(1.0, -1.9, 0, -2.8);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#2f1772";
+      ctx.beginPath();
+      ctx.moveTo(0, -2.2);
+      ctx.quadraticCurveTo(-1.0, -1.0, -0.6, 1.2);
+      ctx.quadraticCurveTo(-0.2, 2.8, 0.0, 2.9);
+      ctx.quadraticCurveTo(0.2, 2.8, 0.6, 1.2);
+      ctx.quadraticCurveTo(1.0, -1.0, 0, -2.2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#bca9ff";
+      ctx.beginPath();
+      ctx.ellipse(-0.6, -1.2, 0.35, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.6, -1.2, 0.35, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0d0618";
+      ctx.beginPath();
+      ctx.ellipse(-0.5, -1.2, 0.16, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.5, -1.2, 0.16, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#472497";
+      ctx.beginPath();
+      ctx.moveTo(-1.8, -0.4);
+      ctx.quadraticCurveTo(-3.0, 0.6, -2.8, 1.6);
+      ctx.quadraticCurveTo(-2.6, 2.4, -1.6, 2.0);
+      ctx.quadraticCurveTo(-0.6, 1.6, -0.8, 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(1.8, -0.4);
+      ctx.quadraticCurveTo(3.0, 0.6, 2.8, 1.6);
+      ctx.quadraticCurveTo(2.6, 2.4, 1.6, 2.0);
+      ctx.quadraticCurveTo(0.6, 1.6, 0.8, 0.2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(210,195,255,0.25)";
+      ctx.lineWidth = 0.22;
+      ctx.beginPath();
+      ctx.moveTo(0, -1.8);
+      ctx.quadraticCurveTo(-0.4, -0.6, 0, 1.2);
+      ctx.quadraticCurveTo(0.4, -0.6, 0, -1.8);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawBlightfang = () => {
+      const flare = Math.sin(time * 3 + enemy.animTimer * 0.22) * 0.3;
+      ctx.save();
+      ctx.globalAlpha *= spawnFade;
+      ctx.fillStyle = "#3a1606";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.3, 3.0, 2.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ff8456";
+      ctx.beginPath();
+      ctx.moveTo(-2.6, -0.5);
+      ctx.quadraticCurveTo(0, -2.4 - flare, 2.6, -0.5);
+      ctx.quadraticCurveTo(2.9, 0.6 + flare, 0, 2.2);
+      ctx.quadraticCurveTo(-2.9, 0.6 + flare, -2.6, -0.5);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#52220b";
+      ctx.beginPath();
+      ctx.moveTo(-1.8, 0.4);
+      ctx.quadraticCurveTo(-2.8, 1.8, -1.8, 2.6);
+      ctx.lineTo(-1.2, 1.0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(1.8, 0.4);
+      ctx.quadraticCurveTo(2.8, 1.8, 1.8, 2.6);
+      ctx.lineTo(1.2, 1.0);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#ffe0c6";
+      ctx.beginPath();
+      ctx.moveTo(-1.2, -0.8);
+      ctx.lineTo(0, 0.4 + flare * 0.5);
+      ctx.lineTo(1.2, -0.8);
+      ctx.quadraticCurveTo(0, -1.4 - flare * 0.3, -1.2, -0.8);
+      ctx.fill();
+
+      ctx.fillStyle = "#2a0b03";
+      ctx.beginPath();
+      ctx.ellipse(-0.9, -1.3, 0.4, 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.9, -1.3, 0.4, 0.34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ffe6d4";
+      ctx.beginPath();
+      ctx.moveTo(-0.6, 0.4 + flare * 0.4);
+      ctx.lineTo(-0.2, 1.4 + flare * 0.4);
+      ctx.lineTo(-1.0, 1.1 + flare * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(0.6, 0.4 + flare * 0.4);
+      ctx.lineTo(0.2, 1.4 + flare * 0.4);
+      ctx.lineTo(1.0, 1.1 + flare * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    };
+
+    const drawVoidreaver = () => {
+      const pulse = 0.6 + Math.sin(time * 4 + enemy.animTimer * 0.3) * 0.25;
+      ctx.save();
+      ctx.globalAlpha *= spawnFade;
+      ctx.fillStyle = "rgba(20,12,46,0.95)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.6, 2.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `rgba(72,58,170,${0.3 + pulse * 0.25})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.2 + pulse * 0.6, 2.0 + pulse * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(140,130,255,${0.2 + pulse * 0.2})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 1.6 + pulse * 0.3, 1.5 + pulse * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = "#0c0216";
+      ctx.beginPath();
+      ctx.moveTo(-1.6, -0.6);
+      ctx.quadraticCurveTo(0, -1.8 - pulse * 0.5, 1.6, -0.6);
+      ctx.quadraticCurveTo(0, 0.8 + pulse * 0.6, -1.6, -0.6);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#d6d4ff";
+      ctx.beginPath();
+      ctx.ellipse(-0.8, -0.8, 0.42, 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.8, -0.8, 0.42, 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#100622";
+      ctx.beginPath();
+      ctx.ellipse(-0.68, -0.8, 0.16, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.68, -0.8, 0.16, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(160,150,255,0.35)";
+      ctx.lineWidth = 0.25;
+      ctx.beginPath();
+      ctx.moveTo(-1.8, 0.6);
+      ctx.quadraticCurveTo(-2.8, 1.6, -1.6, 2.4);
+      ctx.moveTo(1.8, 0.6);
+      ctx.quadraticCurveTo(2.8, 1.6, 1.6, 2.4);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawDoomclaw = () => {
+      const slam = Math.sin(time * 2.2 + enemy.animTimer * 0.16);
+      ctx.save();
+      ctx.globalAlpha *= spawnFade;
+      ctx.fillStyle = "#330615";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.2, 3.2, 2.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ff4d7a";
+      ctx.beginPath();
+      ctx.moveTo(-2.8, -1.2);
+      ctx.quadraticCurveTo(0, -3.0, 2.8, -1.2);
+      ctx.quadraticCurveTo(2.6, 1.4 + slam * 0.4, 0, 2.6);
+      ctx.quadraticCurveTo(-2.6, 1.4 + slam * 0.4, -2.8, -1.2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#ffe6f1";
+      ctx.beginPath();
+      ctx.ellipse(-1.2, -0.5, 0.5, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.2, -0.5, 0.5, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#2d0615";
+      ctx.beginPath();
+      ctx.ellipse(-1.0, -0.5, 0.2, 0.26, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.0, -0.5, 0.2, 0.26, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#5a1128";
+      ctx.beginPath();
+      ctx.moveTo(-2.4, 0.6);
+      ctx.lineTo(-3.2, 2.8 + slam * 0.3);
+      ctx.lineTo(-1.8, 2.4 + slam * 0.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(2.4, 0.6);
+      ctx.lineTo(3.2, 2.8 + slam * 0.3);
+      ctx.lineTo(1.8, 2.4 + slam * 0.2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#2f0814";
+      ctx.beginPath();
+      ctx.moveTo(-0.6, -0.2);
+      ctx.lineTo(-0.2, 1.8 + slam * 0.3);
+      ctx.lineTo(0.2, 1.8 + slam * 0.3);
+      ctx.lineTo(0.6, -0.2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,140,180,0.3)";
+      ctx.lineWidth = 0.3;
+      ctx.beginPath();
+      ctx.moveTo(-2.0, -0.8);
+      ctx.quadraticCurveTo(0, -1.6 - slam * 0.2, 2.0, -0.8);
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    ctx.save();
+    switch (variant) {
+      case "gnasher":
+        drawGnasher();
+        break;
+      case "stalker":
+        drawStalker();
+        break;
+      case "blightfang":
+        drawBlightfang();
+        break;
+      case "voidreaver":
+        drawVoidreaver();
+        break;
+      case "doomclaw":
+        drawDoomclaw();
+        break;
+      default:
+        ctx.globalAlpha *= spawnFade;
+        drawDefault();
+        break;
     }
-    ctx.fillStyle = palette.shell;
-    ctx.fillRect(-2.8, -2.2, 5.6, 3.6);
-    ctx.fillStyle = palette.body;
-    ctx.fillRect(-2.0, -1.4, 4.0, 2.8);
-    ctx.fillRect(-1.0, -2.8, 2.0, 1.4 + wobble);
-    ctx.fillStyle = palette.eye;
-    ctx.fillRect(0.6, -1.6, 1.0, 1.0);
-    ctx.fillStyle = "#121212";
-    ctx.fillRect(0.95, -1.35, 0.4, 0.4);
-    ctx.fillStyle = palette.body;
-    ctx.fillRect(-2.4, 0.6, 1.0, 2.2 - wobble);
-    ctx.fillRect(1.4, 0.6, 1.0, 2.2 + wobble);
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   ctx.restore();
@@ -2713,9 +3564,15 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
         ? "#8b5cf6"
         : enemy.variant === "mauler"
           ? "#f79d2a"
-          : enemy.variant === "titan"
-            ? "#ff4d94"
-            : "#f25858";
+          : enemy.variant === "blightfang"
+            ? "#ff8456"
+            : enemy.variant === "voidreaver"
+              ? "#7d7bff"
+              : enemy.variant === "doomclaw"
+                ? "#ff4d7a"
+                : enemy.variant === "titan"
+                  ? "#ff4d94"
+                  : "#f25858";
   ctx.fillRect(
     x - barWidth / 2,
     y - (enemy.variant === "titan" ? 48 : 34),
@@ -2768,15 +3625,34 @@ function drawMinimap() {
     }
   }
 
-  manaDrops.forEach((drop) => {
-    minimapCtx.fillStyle = "#62f2ff";
-    minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
-  });
+  const manaBlink =
+    0.4 +
+    0.6 *
+      (0.5 +
+        0.5 *
+          Math.sin(animationTime * 0.008));
+  const healthBlink =
+    0.4 +
+    0.6 *
+      (0.5 +
+        0.5 *
+          Math.sin(animationTime * 0.008 + Math.PI / 2));
 
-  healthDrops.forEach((drop) => {
-    minimapCtx.fillStyle = "#66df81";
+  minimapCtx.save();
+  minimapCtx.globalAlpha = manaBlink;
+  minimapCtx.fillStyle = "#62f2ff";
+  manaDrops.forEach((drop) => {
     minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
   });
+  minimapCtx.restore();
+
+  minimapCtx.save();
+  minimapCtx.globalAlpha = healthBlink;
+  minimapCtx.fillStyle = "#ff6b7d";
+  healthDrops.forEach((drop) => {
+    minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
+  });
+  minimapCtx.restore();
 
   meatDrops.forEach((drop) => {
     minimapCtx.fillStyle = MEAT_COLOR;
@@ -2914,10 +3790,26 @@ function generateDungeon() {
     rooms.push(room);
   }
 
+  const dungeonCenterX = MAP_COLS / 2;
+  const dungeonCenterY = MAP_ROWS / 2;
+  let homeRoom = rooms[0];
+  let homeScore = -Infinity;
+  rooms.forEach((room) => {
+    const area = room.width * room.height;
+    const distance = Math.hypot(room.centerX - dungeonCenterX, room.centerY - dungeonCenterY);
+    const score = area - distance * 1.8;
+    if (score > homeScore) {
+      homeScore = score;
+      homeRoom = room;
+    }
+  });
+  homeRoom.isHome = true;
+
   rooms.sort((a, b) => a.centerX + a.centerY - (b.centerX + b.centerY));
   for (let i = 1; i < rooms.length; i += 1) connectRooms(grid, rooms[i - 1], rooms[i]);
 
   rooms.forEach((room, index) => {
+    if (room.isHome) return;
     if (index % 3 === 0) {
       const alcoves = Math.floor(room.width / 3);
       for (let i = 0; i < alcoves; i += 1) {
@@ -2931,7 +3823,7 @@ function generateDungeon() {
     }
   });
 
-  const spawnRoom = rooms[0];
+  const spawnRoom = homeRoom;
   const decorationCells = new Set();
 
   function analyzeDecorationSpot(tileX, tileY, minDistance = CELL_SIZE * 0.9, minOpenNeighbors = 4) {
@@ -2998,7 +3890,40 @@ function generateDungeon() {
     return true;
   }
 
+  function decorateHomeRoom(room) {
+    if (!room) return;
+    const safeOffset = (value, limit) => Math.max(0.2, Math.min(limit - 0.2, value));
+    const toWorld = (offsetX, offsetY) => ({
+      x: (room.x + safeOffset(offsetX, room.width) + 0.5) * CELL_SIZE,
+      y: (room.y + safeOffset(offsetY, room.height) + 0.5) * CELL_SIZE,
+    });
+
+    const bedPos = toWorld(0.9, 0.9);
+    const potionPos = toWorld(room.width - 1.4, 1.0);
+    const loungePos = toWorld(room.width - 1.6, room.height - 1.4);
+    const rugPos = toWorld(room.width / 2 - 0.5, room.height / 2 - 0.6);
+    const shelfPos = toWorld(1.0, room.height - 1.6);
+
+    [
+      { pos: rugPos, type: "home_rug", speed: 0.18, intensity: 0.4 },
+      { pos: bedPos, type: "home_bed", speed: 0.24, intensity: 0.5 },
+      { pos: potionPos, type: "home_potion_table", speed: 0.35, intensity: 0.85 },
+      { pos: loungePos, type: "home_lounge", speed: 0.26, intensity: 0.6 },
+      { pos: shelfPos, type: "home_books", speed: 0.2, intensity: 0.35 },
+    ].forEach((item) => {
+      decorations.push({
+        x: item.pos.x,
+        y: item.pos.y,
+        type: item.type,
+        phase: Math.random() * Math.PI * 2,
+        speed: item.speed,
+        intensity: item.intensity,
+      });
+    });
+  }
+
   rooms.forEach((room) => {
+    if (room.isHome) return;
     const decorCount = 4 + Math.floor(Math.random() * 5);
     for (let i = 0; i < decorCount; i += 1) {
       let spot = pickDecorationCell(room);
@@ -3040,6 +3965,7 @@ function generateDungeon() {
       }
     }
   });
+  decorateHomeRoom(homeRoom);
 
   return { grid, rooms, decorations, spawn: { x: spawnRoom.centerX, y: spawnRoom.centerY } };
 }
