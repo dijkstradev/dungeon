@@ -308,6 +308,18 @@ const player = {
   facingX: 1,
   facingY: 0,
   shootingTimer: 0,
+  blinkTimer: 2600,
+  blinkState: "idle",
+  blinkElapsed: 0,
+  blinkPhase: 0,
+  idleTimer: 0,
+  idleState: "none",
+  idleStateTimer: 0,
+  isMoving: false,
+  satchelSwing: 0,
+  satchelPhase: 0,
+  footstepToggle: false,
+  footstepTimer: 0,
   gunLevel: 0,
   nextGunUpgrade: GUN_UPGRADE_FIRST,
   hunger: 0,
@@ -584,6 +596,20 @@ const COMPANION_VARIANT_LIMITS = {
   glintmoth: 2,
   echosprite: 2,
 };
+const PLAYER_IDLE_VARIANTS = ["adjust_hat", "staff_spin", "stretch"];
+
+function getIdleStateDuration(state) {
+  switch (state) {
+    case "adjust_hat":
+      return 1800;
+    case "staff_spin":
+      return 2200;
+    case "stretch":
+      return 2000;
+    default:
+      return 0;
+  }
+}
 const PREY_SPAWN_INTERVAL = 8500;
 const MAX_PREY = 14;
 const PREY_IDLE_MIN = 1400;
@@ -641,6 +667,18 @@ function resetGame() {
   player.facingX = 1;
   player.facingY = 0;
   player.shootingTimer = 0;
+  player.blinkTimer = 2200 + Math.random() * 1600;
+  player.blinkState = "idle";
+  player.blinkElapsed = 0;
+  player.blinkPhase = 0;
+  player.idleTimer = 0;
+  player.idleState = "none";
+  player.idleStateTimer = 0;
+  player.isMoving = false;
+  player.satchelSwing = 0;
+  player.satchelPhase = 0;
+  player.footstepToggle = false;
+  player.footstepTimer = 0;
   player.baseSpeed = 240;
   player.speed = player.baseSpeed;
   player.speedBoostTimer = 0;
@@ -1427,6 +1465,47 @@ function update(delta) {
   const deltaSeconds = delta / 1000;
   player.shootingTimer = Math.max(0, player.shootingTimer - delta);
 
+  switch (player.blinkState) {
+    case "idle":
+      player.blinkTimer -= delta;
+      player.blinkPhase = Math.max(0, player.blinkPhase - delta / 160);
+      if (player.blinkTimer <= 0) {
+        player.blinkState = "closing";
+        player.blinkElapsed = 0;
+      }
+      break;
+    case "closing":
+      player.blinkElapsed += delta;
+      player.blinkPhase = Math.min(1, player.blinkElapsed / 80);
+      if (player.blinkElapsed >= 80) {
+        player.blinkState = "closed";
+        player.blinkElapsed = 0;
+      }
+      break;
+    case "closed":
+      player.blinkElapsed += delta;
+      player.blinkPhase = 1;
+      if (player.blinkElapsed >= 60) {
+        player.blinkState = "opening";
+        player.blinkElapsed = 0;
+      }
+      break;
+    case "opening":
+      player.blinkElapsed += delta;
+      player.blinkPhase = Math.max(0, 1 - player.blinkElapsed / 120);
+      if (player.blinkElapsed >= 120) {
+        player.blinkState = "idle";
+        player.blinkTimer = 2400 + Math.random() * 2200;
+        player.blinkPhase = 0;
+      }
+      break;
+    default:
+      player.blinkState = "idle";
+      player.blinkTimer = 2200 + Math.random() * 1600;
+      player.blinkPhase = 0;
+      break;
+  }
+
   if (achievementTimer > 0) {
     achievementTimer -= delta;
     if (achievementTimer <= 0) {
@@ -1490,6 +1569,43 @@ function update(delta) {
     player.facingY = moveY;
     player.lastFacingX = moveX;
     player.lastFacingY = moveY;
+  }
+
+  player.isMoving = movedPlayer;
+  if (movedPlayer) {
+    player.idleTimer = 0;
+    if (player.idleState !== "none") {
+      player.idleState = "none";
+      player.idleStateTimer = 0;
+    }
+    player.satchelSwing = Math.min(1, player.satchelSwing + delta / 260);
+    player.satchelPhase = (player.satchelPhase + delta * 0.012 * (player.speed / player.baseSpeed)) % (Math.PI * 2);
+    player.footstepTimer -= delta;
+    if (player.footstepTimer <= 0) {
+      spawnFootstepMark(player.footstepToggle);
+      player.footstepToggle = !player.footstepToggle;
+      player.footstepTimer = 210;
+    }
+  } else {
+    player.satchelSwing = Math.max(0, player.satchelSwing - delta / 320);
+    if (player.idleState === "none") {
+      player.idleTimer += delta;
+      if (player.idleTimer >= 5200) {
+        const nextState = PLAYER_IDLE_VARIANTS[Math.floor(Math.random() * PLAYER_IDLE_VARIANTS.length)];
+        player.idleState = nextState;
+        player.idleStateTimer = 0;
+        player.idleTimer = 0;
+      }
+    } else {
+      player.idleStateTimer += delta;
+      const duration = getIdleStateDuration(player.idleState);
+      if (duration && player.idleStateTimer >= duration) {
+        player.idleState = "none";
+        player.idleStateTimer = 0;
+        player.idleTimer = 0;
+      }
+    }
+    player.footstepTimer = Math.min(260, player.footstepTimer + delta);
   }
 
   if (movedPlayer) {
@@ -2625,6 +2741,38 @@ function spawnHealNumber(x, y, amount = 1) {
   spawnDamageNumber(x, y, amount, "player", { variant: "heal" });
 }
 
+function spawnFootstepMark(leftSide) {
+  const dirX = player.lastFacingX || 0;
+  const dirY = player.lastFacingY || 1;
+  const tangentX = -dirY;
+  const tangentY = dirX;
+  const lateralLen = Math.hypot(tangentX, tangentY) || 1;
+  const side = leftSide ? -1 : 1;
+  const lateralOffset = (6.2 + player.satchelSwing * 2.4) * side;
+  const forwardOffset = -8 + player.satchelSwing * -2.5;
+  const fx = player.x + (tangentX / lateralLen) * lateralOffset + dirX * forwardOffset;
+  const fy = player.y + (tangentY / lateralLen) * lateralOffset + dirY * forwardOffset + player.radius * 0.28;
+  const mutationFactor = Math.min(player.mutationStage || 0, MAX_MUTATION_STAGE) / MAX_MUTATION_STAGE;
+  const palette =
+    mutationFactor >= 0.66
+      ? "#ff6ac4"
+      : mutationFactor >= 0.33
+        ? "#7fffd6"
+        : "#ffe3a8";
+  const color = hexToRgb(palette);
+  particles.push({
+    x: fx,
+    y: fy,
+    vx: 0,
+    vy: -5,
+    size: 3 + mutationFactor * 2.2,
+    life: 300,
+    maxLife: 300,
+    color,
+    type: "foot",
+  });
+}
+
 function spawnManaNumber(x, y, amount = 1) {
   spawnDamageNumber(x, y, amount, "player", { variant: "mana" });
 }
@@ -3716,7 +3864,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
-  ctx.ellipse(0, 2.6, isSide ? 2.8 : 3.2, 1.4, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 3.6, isSide ? 2.8 : 3.2, 1.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
   const stage = Math.min(player.mutationStage || 0, MAX_MUTATION_STAGE);
@@ -3856,9 +4004,26 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       break;
   }
 
-  const faceGlow = `rgba(${faceGlowColor}, ${faceGlowAlphaBase + stageRatio * faceGlowAlphaBonus})`;
-  const eyeGlow = `rgba(${eyeGlowColor}, ${0.42 + stageRatio * 0.3})`;
-  const eyePulse = 0.04 + Math.sin(animationTime * 0.005 + walkPhase) * 0.03;
+  const blinkAmount = Math.min(1, Math.max(0, player.blinkPhase || 0));
+  const blinkEase = 1 - Math.pow(blinkAmount, 0.65);
+  const idleState = player.idleState || "none";
+  const idleDuration = getIdleStateDuration(idleState) || 1;
+  const idleNorm = idleState !== "none" ? Math.min(1, player.idleStateTimer / idleDuration) : 0;
+  const idleEase = idleState !== "none" ? Math.sin(idleNorm * Math.PI) : 0;
+  const isAdjustingHat = idleState === "adjust_hat";
+  const isStaffSpin = idleState === "staff_spin";
+  const isStretching = idleState === "stretch";
+  const satchelSwing = player.satchelSwing || 0;
+  const satchelPhase = player.satchelPhase || 0;
+  const motionIntensity = player.isMoving ? 1 : 0;
+
+  const faceGlowAlpha = (faceGlowAlphaBase + stageRatio * faceGlowAlphaBonus) * (0.82 + blinkEase * 0.4);
+  const faceGlow = `rgba(${faceGlowColor}, ${faceGlowAlpha})`;
+  const eyeGlow = `rgba(${eyeGlowColor}, ${0.32 + blinkEase * (0.36 + stageRatio * 0.18)})`;
+  const eyePulse =
+    0.04 +
+    Math.sin(animationTime * 0.005 + walkPhase + satchelPhase * 0.25) *
+      (0.03 + motionIntensity * 0.02);
   const showHat = hatBase !== null;
   const hatTattered = mutationPhase >= 2 && mutationPhase < 3;
   const showHorns = mutationPhase >= 1;
@@ -3867,27 +4032,49 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
   const showClaws = mutationPhase >= 1;
   const backSpikes = mutationPhase >= 3;
 
-  const robeWidth = isSide ? 2.3 : 2.8;
+  const hatTilt =
+    (isAdjustingHat ? -0.22 * idleEase : 0) + (motionIntensity ? Math.sin(animationTime * 0.0024) * 0.04 : 0);
+  const headNod =
+    (isStretching ? -0.08 * idleEase : 0) + (motionIntensity ? Math.sin(animationTime * 0.004 + walkPhase) * 0.03 : 0);
+  const torsoLean =
+    (isStretching ? -0.06 * idleEase : 0) + (motionIntensity ? Math.cos(animationTime * 0.003 + walkPhase) * 0.04 : 0);
+  const eyeSquint =
+    (isAdjustingHat ? idleEase * 0.6 : 0) + (isStretching ? idleEase * 0.3 : 0) + motionIntensity * 0.1;
+  const staffIdleRotation =
+    (isStaffSpin ? Math.sin(player.idleStateTimer / 180) * 0.5 * idleEase : 0) +
+    (motionIntensity ? Math.sin(animationTime * 0.002 + walkPhase) * 0.05 : 0);
+  const staffIdleLift =
+    (isStaffSpin ? 0.42 * idleEase : 0) +
+    (isStretching ? 0.18 * idleEase : 0) +
+    (motionIntensity ? Math.sin(animationTime * 0.003 + walkPhase) * 0.08 : 0);
+  const sashLift = Math.sin(animationTime * 0.004 + walkPhase) * (0.08 + motionIntensity * 0.04) + idleEase * 0.05;
+  const robeFlutter = Math.sin(animationTime * 0.004 + walkPhase) * (0.12 + motionIntensity * 0.06) + idleEase * 0.05;
+
+  const robeWidth = isSide ? 2.55 : 2.8;
   const robeBaseY = 3.15;
   const belly = Math.sin((walkPhase + (shooting ? 0.5 : 0)) * (Math.PI / 2)) * 0.12;
-  const sway = Math.sin(animationTime * 0.0025) * 0.12;
-  const staffGlowBase = 0.32 + stageRatio * 0.18 + mutationPhase * 0.08;
+  const sway = Math.sin(animationTime * 0.0025) * 0.12 + torsoLean;
+  const hastePulse = player.speedBoostTimer > 0 ? 0.2 : 0;
+  const staffGlowBase = 0.32 + stageRatio * 0.18 + mutationPhase * 0.08 + hastePulse + idleEase * 0.08;
   const staffGlow = shooting ? staffGlowBase + 0.32 : staffGlowBase;
   const staffShift = shooting ? 0.55 + mutationPhase * 0.08 : 0.1 + mutationPhase * 0.05;
-  const staffBaseX = orientation === "back" ? 2.0 : orientation === "side" ? 2.4 : 2.8;
-  const staffBaseY = orientation === "back" ? -1.6 : -1.4;
+  const staffBaseX = orientation === "back" ? 2.0 : orientation === "side" ? 2.35 : 2.75;
+  const staffBaseY = (orientation === "back" ? -1.6 : -1.4) - staffIdleLift;
+  const strapColor = mutationPhase >= 2 ? "#5e3c8d" : "#5e3b2a";
+  const strapHighlight = mutationPhase >= 2 ? "#b79cf1" : "#cfb483";
+  const satchelColor = mutationPhase >= 2 ? "#3b235a" : "#5a3927";
+  const satchelHighlight = mutationPhase >= 2 ? "#d2b8ff" : "#e9c796";
 
   const drawStaff = () => {
     ctx.save();
     ctx.translate(staffBaseX + staffShift, staffBaseY);
-    if (shooting) {
-      ctx.rotate(-0.18);
-    } else if (orientation === "back") {
-      ctx.rotate(0.08);
-    } else {
-      ctx.rotate(0.05);
-    }
-    ctx.fillStyle = staffWoodColor;
+    const baseRotation = shooting ? -0.18 : orientation === "back" ? 0.08 : 0.05;
+    ctx.rotate(baseRotation + staffIdleRotation);
+    const shaftGradient = ctx.createLinearGradient(0, -1.0, 0, 6.4);
+    shaftGradient.addColorStop(0, mixHexColors(staffWoodColor, "#f4cfae", 0.4));
+    shaftGradient.addColorStop(0.45, staffWoodColor);
+    shaftGradient.addColorStop(1, mixHexColors(staffWoodColor, "#12080c", 0.5));
+    ctx.fillStyle = shaftGradient;
     ctx.beginPath();
     ctx.moveTo(-0.35, -0.3);
     ctx.quadraticCurveTo(-0.65, 2.0, -0.25, 3.6);
@@ -3914,19 +4101,25 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.fill();
     }
 
-    ctx.fillStyle = staffCapColor;
+    const capGradient = ctx.createLinearGradient(-0.8, -1.6, 0.8, -0.4);
+    capGradient.addColorStop(0, mixHexColors(staffCapColor, "#ffffff", 0.35));
+    capGradient.addColorStop(1, mixHexColors(staffCapColor, "#160b26", 0.45));
+    ctx.fillStyle = capGradient;
     ctx.beginPath();
-    ctx.ellipse(0, -0.8, 0.65, 0.75, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -0.8, 0.78, 0.82, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.shadowColor = "rgba(255, 180, 255, 0.45)";
+    ctx.shadowBlur = 6 + staffGlow * 4;
     ctx.fillStyle = orbCoreColor;
     ctx.beginPath();
-    ctx.arc(0, -1.4, 1.05 + staffGlow * 0.5, 0, Math.PI * 2);
+    ctx.arc(0, -1.4, 1.2 + staffGlow * 0.55, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = staffAuraStroke;
     ctx.lineWidth = 0.22;
     ctx.beginPath();
-    ctx.arc(0, -1.4, 1.3 + staffGlow * 0.45, 0, Math.PI * 2);
+    ctx.arc(0, -1.4, 1.45 + staffGlow * 0.45, 0, Math.PI * 2);
     ctx.stroke();
     if (mutationPhase >= 3) {
       ctx.globalAlpha = 0.6 + staffGlow * 0.6;
@@ -4058,12 +4251,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.restore();
   };
 
-  if (isBack) {
-    drawStaff();
-  }
-
   ctx.save();
-  if (isSide) ctx.scale(0.9, 1);
 
   const leftLift = Math.max(0, Math.sin(walkPhase * (Math.PI / 2))) * 0.45;
   const rightLift = Math.max(0, Math.sin(((walkPhase + 2) % 4) * (Math.PI / 2))) * 0.45;
@@ -4108,79 +4296,108 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
   };
 
   const drawFront = () => {
-    ctx.fillStyle = robeColor;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth, -1.2 - sway);
-    ctx.quadraticCurveTo(-robeWidth - 0.7, 0.9 + belly, -1.1, robeBaseY);
-    ctx.quadraticCurveTo(0, robeBaseY + 0.6, 1.1, robeBaseY);
-    ctx.quadraticCurveTo(robeWidth + 0.7, 0.9 + belly, robeWidth, -1.2 - sway);
-    ctx.quadraticCurveTo(0, -2.3 - sway * 0.4, -robeWidth, -1.2 - sway);
-    ctx.closePath();
+    const traceRobeShape = () => {
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth, -1.1 - sway);
+      ctx.quadraticCurveTo(-robeWidth - 0.6, 0.6 + belly, -robeWidth * 0.62, robeBaseY - 0.15);
+      ctx.quadraticCurveTo(0, robeBaseY + 0.35 + robeFlutter * 0.15, robeWidth * 0.62, robeBaseY - 0.15);
+      ctx.quadraticCurveTo(robeWidth + 0.6, 0.6 + belly, robeWidth, -1.1 - sway);
+      ctx.quadraticCurveTo(0, -2.2 - sway * 0.35, -robeWidth, -1.1 - sway);
+      ctx.closePath();
+    };
+    const tracePanelShape = () => {
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth * 0.6, -0.8 - sway * 0.5);
+      ctx.quadraticCurveTo(-robeWidth * 0.4, 0.9 + belly * 0.6, -0.4, 2.6 + robeFlutter * 0.25);
+      ctx.quadraticCurveTo(0, 2.95 + robeFlutter * 0.3, 0.4, 2.6 + robeFlutter * 0.25);
+      ctx.quadraticCurveTo(robeWidth * 0.4, 0.9 + belly * 0.6, robeWidth * 0.6, -0.8 - sway * 0.5);
+      ctx.quadraticCurveTo(0, -1.8 - sway * 0.3, -robeWidth * 0.6, -0.8 - sway * 0.5);
+      ctx.closePath();
+    };
+    const drawSatchelFront = () => {
+      const swingTranslate = Math.sin(satchelPhase) * 0.25 * (0.4 + satchelSwing);
+      ctx.save();
+      ctx.translate(0, swingTranslate);
+      const strapGradient = ctx.createLinearGradient(-robeWidth, -1.8, robeWidth, robeBaseY + 0.8);
+      strapGradient.addColorStop(0, mixHexColors(strapColor, "#160a05", 0.5));
+      strapGradient.addColorStop(0.5, strapColor);
+      strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.45));
+      ctx.fillStyle = strapGradient;
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth + 0.45, -1.65);
+      ctx.lineTo(-robeWidth + 1.15, -1.6);
+      ctx.lineTo(0.95, robeBaseY + 0.3 + satchelSwing * 0.45);
+      ctx.lineTo(0.35, robeBaseY + 0.3 + satchelSwing * 0.45);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    };
+
+    ctx.save();
+    ctx.translate(0, torsoLean * 0.4);
+
+    const robeGradient = ctx.createLinearGradient(0, -1.9, 0, robeBaseY + 0.5);
+    robeGradient.addColorStop(0, mixHexColors(robeHighlight, robeColor, 0.65));
+    robeGradient.addColorStop(0.6, robeColor);
+    robeGradient.addColorStop(1, mixHexColors(robeColor, "#13080c", 0.32));
+    traceRobeShape();
+    ctx.fillStyle = robeGradient;
     ctx.fill();
 
-    ctx.fillStyle = robeHighlight;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth * 0.6, -0.8 - sway * 0.5);
-    ctx.quadraticCurveTo(-robeWidth * 0.4, 0.9 + belly * 0.6, -0.4, 2.6);
-    ctx.quadraticCurveTo(0, 2.95, 0.4, 2.6);
-    ctx.quadraticCurveTo(robeWidth * 0.4, 0.9 + belly * 0.6, robeWidth * 0.6, -0.8 - sway * 0.5);
-    ctx.quadraticCurveTo(0, -1.8 - sway * 0.3, -robeWidth * 0.6, -0.8 - sway * 0.5);
-    ctx.closePath();
-    ctx.fill();
+    ctx.lineWidth = 0.18;
+    ctx.strokeStyle = `rgba(255,255,255,${(0.12 + stageRatio * 0.1).toFixed(2)})`;
+    traceRobeShape();
+    ctx.stroke();
 
-    ctx.fillStyle = sashColor;
-    ctx.beginPath();
-    ctx.ellipse(0, 0.6 + belly * 0.4, robeWidth * 0.82, 0.95, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = trimColor;
-    ctx.globalAlpha = 0.25;
-    ctx.beginPath();
-    ctx.ellipse(0, 0.4 + belly * 0.4, robeWidth * 0.7, 0.65, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    drawSatchelFront();
 
     ctx.fillStyle = gloveColor;
     ctx.beginPath();
-    ctx.ellipse(-robeWidth + 0.5, 0.3 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
+    ctx.ellipse(-robeWidth + 0.48, 0.32 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(robeWidth - 0.5, 0.3 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
+    ctx.ellipse(robeWidth - 0.48, 0.32 + belly * 0.4, 0.75, 1.15, 0, 0, Math.PI * 2);
     ctx.fill();
     if (showClaws) {
       ctx.fillStyle = clawColor;
       ctx.beginPath();
       ctx.moveTo(-robeWidth + 0.6, 1.2 + belly * 0.4);
       ctx.lineTo(-robeWidth - 0.2, 1.9 + belly * 0.5);
-      ctx.lineTo(-robeWidth + 0.3, 2.2 + belly * 0.45);
+      ctx.lineTo(-robeWidth + 0.32, 2.2 + belly * 0.45);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
       ctx.moveTo(robeWidth - 0.6, 1.2 + belly * 0.4);
       ctx.lineTo(robeWidth + 0.2, 1.9 + belly * 0.5);
-      ctx.lineTo(robeWidth - 0.3, 2.2 + belly * 0.45);
+      ctx.lineTo(robeWidth - 0.32, 2.2 + belly * 0.45);
       ctx.closePath();
       ctx.fill();
     }
 
+    ctx.save();
+    ctx.translate(0, headNod);
     ctx.fillStyle = headColor;
     ctx.beginPath();
     ctx.ellipse(0, -2.05, 1.72, 1.08, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = faceGlow;
+    ctx.globalAlpha = 0.9;
     ctx.beginPath();
-    ctx.ellipse(0, -2.05, 1.86, 1.22, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, -2.05 + blinkAmount * 0.04, 1.9, 1.26 - blinkAmount * 0.08, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
 
-    const eyeWidth = 0.34 + eyePulse;
-    const eyeHeight = 0.46 + eyePulse * 0.6;
+    const blinkFactor = Math.max(0.05, 1 - blinkAmount);
+    const eyeWidth = (0.34 + eyePulse * 0.55) * (1 - eyeSquint * 0.35);
+    const eyeHeight = Math.max(0.05, (0.46 + eyePulse * 0.6) * blinkFactor - eyeSquint * 0.32);
+    const eyeGlowHeight = eyeHeight + 0.16;
     ctx.fillStyle = eyeGlow;
     ctx.beginPath();
-    ctx.ellipse(-0.64, -2.0, eyeWidth + 0.18, eyeHeight + 0.14, 0, 0, Math.PI * 2);
+    ctx.ellipse(-0.64, -2.0, eyeWidth + 0.16, eyeGlowHeight, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(0.64, -2.0, eyeWidth + 0.18, eyeHeight + 0.14, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.64, -2.0, eyeWidth + 0.16, eyeGlowHeight, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = eyeColor;
     ctx.beginPath();
@@ -4189,16 +4406,16 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.beginPath();
     ctx.ellipse(0.64, -2.0, eyeWidth, eyeHeight, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillStyle = `rgba(255,255,255,${(0.7 * blinkFactor).toFixed(2)})`;
     ctx.beginPath();
-    ctx.ellipse(-0.38, -2.18, 0.16, 0.22, 0, 0, Math.PI * 2);
+    ctx.ellipse(-0.4, -2.16, 0.16, 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(0.38, -2.18, 0.16, 0.22, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.4, -2.16, 0.16, 0.22, 0, 0, Math.PI * 2);
     ctx.fill();
     const pupilColor = mutationPhase >= 3 ? "#ff2a6a" : mutationPhase >= 2 ? "#2d0f45" : "#1b1b1b";
-    const pupilWidth = mutationPhase >= 2 ? 0.18 : 0.24;
-    const pupilHeight = mutationPhase >= 2 ? 0.62 : 0.36;
+    const pupilWidth = mutationPhase >= 2 ? 0.14 : 0.24;
+    const pupilHeight = Math.max(0.05, (mutationPhase >= 2 ? 0.56 : 0.34) * blinkFactor);
     ctx.fillStyle = pupilColor;
     ctx.beginPath();
     ctx.ellipse(-0.64, -2.0, pupilWidth, pupilHeight, 0, 0, Math.PI * 2);
@@ -4210,122 +4427,122 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.fillStyle = fangColor;
       ctx.beginPath();
       ctx.moveTo(-0.35, -1.42);
-      ctx.lineTo(-0.58, -0.8);
-      ctx.lineTo(-0.1, -1.05);
+      ctx.lineTo(-0.58, -0.82);
+      ctx.lineTo(-0.08, -1.05);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
       ctx.moveTo(0.35, -1.42);
-      ctx.lineTo(0.58, -0.8);
-      ctx.lineTo(0.1, -1.05);
+      ctx.lineTo(0.58, -0.82);
+      ctx.lineTo(0.08, -1.05);
       ctx.closePath();
       ctx.fill();
     }
 
+    ctx.save();
     drawFrontHorns();
+    ctx.restore();
 
     if (showHat && hatShadow && hatBase && hatHighlight) {
       ctx.save();
-      ctx.globalAlpha = 0.72;
-      ctx.fillStyle = hatShadow;
+      ctx.translate(0, -0.85);
+      ctx.rotate(hatTilt);
+      const brimWidth = robeWidth + 1.18 + stageRatio * 0.16;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.beginPath();
-      ctx.ellipse(0, -2.25, robeWidth + 0.7, 0.55 + mutationPhase * 0.05, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -1.65, brimWidth, 0.54, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
 
-      ctx.fillStyle = hatBase;
+      const brimGradient = ctx.createLinearGradient(-brimWidth, -0.4, brimWidth, 0.35);
+      brimGradient.addColorStop(0, mixHexColors(hatBase, "#1a0d10", 0.4));
+      brimGradient.addColorStop(0.5, hatBase);
+      brimGradient.addColorStop(1, mixHexColors(hatBase, hatHighlight, 0.5));
+      ctx.fillStyle = brimGradient;
+      ctx.beginPath();
+      ctx.ellipse(0, -1.64, brimWidth, 0.46, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const crownGradient = ctx.createLinearGradient(0, -4.15 - stageRatio * 0.5, 0, -1.05);
+      crownGradient.addColorStop(0, mixHexColors(hatHighlight, "#ffffff", 0.25));
+      crownGradient.addColorStop(0.65, hatBase);
+      crownGradient.addColorStop(1, mixHexColors(hatBase, hatShadow, 0.55));
+      ctx.fillStyle = crownGradient;
       ctx.beginPath();
       if (hatTattered) {
-        ctx.moveTo(-robeWidth - 0.6, -2.4);
-        ctx.quadraticCurveTo(-1.6, -3.3 - stageRatio * 0.5, -1.2, -4.2 - stageRatio * 0.5);
-        ctx.lineTo(-0.6, -4.9 - stageRatio * 0.6);
-        ctx.lineTo(-0.2, -4.0 - stageRatio * 0.4);
-        ctx.lineTo(0.2, -5.2 - stageRatio * 0.65);
-        ctx.lineTo(0.8, -4.1 - stageRatio * 0.4);
-        ctx.lineTo(1.2, -5.0 - stageRatio * 0.65);
-        ctx.quadraticCurveTo(2.6, -3.7 - stageRatio * 0.45, robeWidth + 0.9, -2.35);
+        ctx.moveTo(-robeWidth - 0.6, -1.85);
+        ctx.quadraticCurveTo(-1.6, -2.8 - stageRatio * 0.45, -1.2, -3.7 - stageRatio * 0.45);
+        ctx.lineTo(-0.6, -4.4 - stageRatio * 0.5);
+        ctx.lineTo(-0.2, -3.5 - stageRatio * 0.35);
+        ctx.lineTo(0.2, -4.7 - stageRatio * 0.55);
+        ctx.lineTo(0.78, -3.6 - stageRatio * 0.35);
+        ctx.lineTo(1.18, -4.4 - stageRatio * 0.5);
+        ctx.quadraticCurveTo(2.4, -3.0 - stageRatio * 0.4, robeWidth + 0.9, -2.1);
       } else {
-        ctx.moveTo(-robeWidth - 0.5, -2.3);
-        ctx.quadraticCurveTo(-1.6, -3.3 - stageRatio * 0.4, -0.8, -4.6 - stageRatio * 0.5);
-        ctx.quadraticCurveTo(-0.1, -5.7 - stageRatio * 0.55, 1.1, -4.9 - stageRatio * 0.6);
-        ctx.quadraticCurveTo(2.6, -3.9 - stageRatio * 0.45, robeWidth + 0.8, -2.35);
+        ctx.moveTo(-robeWidth - 0.4, -1.65);
+        ctx.quadraticCurveTo(-1.2, -2.7 - stageRatio * 0.38, -0.6, -4.15 - stageRatio * 0.45);
+        ctx.quadraticCurveTo(0, -4.95 - stageRatio * 0.5, 0.68, -4.3 - stageRatio * 0.48);
+        ctx.quadraticCurveTo(1.3, -3.25 - stageRatio * 0.38, robeWidth + 0.4, -1.65);
       }
-      ctx.quadraticCurveTo(0.4, -2.6, -robeWidth - 0.5, -2.3);
+      ctx.quadraticCurveTo(0, -2.3, -robeWidth - 0.4, -1.65);
       ctx.closePath();
       ctx.fill();
 
-      ctx.fillStyle = hatHighlight;
-      ctx.globalAlpha = 0.55;
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = mixHexColors(hatHighlight, "#ffffff", 0.4);
       ctx.beginPath();
-      if (hatTattered) {
-        ctx.moveTo(-0.8, -4.3 - stageRatio * 0.45);
-        ctx.lineTo(-0.2, -5.0 - stageRatio * 0.5);
-        ctx.lineTo(0.4, -4.2 - stageRatio * 0.45);
-        ctx.lineTo(0.9, -4.6 - stageRatio * 0.5);
-        ctx.lineTo(0.3, -3.6 - stageRatio * 0.3);
-        ctx.closePath();
-      } else {
-        ctx.moveTo(-1.0, -4.3 - stageRatio * 0.45);
-        ctx.quadraticCurveTo(-0.5, -4.9 - stageRatio * 0.5, 0.6, -4.8 - stageRatio * 0.55);
-        ctx.quadraticCurveTo(1.5, -4.4 - stageRatio * 0.45, 0.9, -3.7 - stageRatio * 0.4);
-        ctx.closePath();
-      }
+      ctx.moveTo(-0.3, -4.0 - stageRatio * 0.45);
+      ctx.quadraticCurveTo(0.08, -4.3 - stageRatio * 0.45, 0.5, -3.7 - stageRatio * 0.4);
+      ctx.quadraticCurveTo(0.04, -3.7, -0.34, -3.5 - stageRatio * 0.35);
+      ctx.closePath();
       ctx.fill();
       ctx.globalAlpha = 1;
-    }
-
-    if (showHat && hatBase && hatShadow) {
-      const rimWidth = robeWidth + 1.0;
-      ctx.save();
-      ctx.translate(0, -1.05);
-      ctx.beginPath();
-      ctx.fillStyle = hatHighlight || "#f0d59a";
-      ctx.globalAlpha = 0.65;
-      ctx.ellipse(0, 0, rimWidth, 0.46, 0, 0, Math.PI);
-      ctx.lineTo(rimWidth, 0.18);
-      ctx.ellipse(0, 0.18, rimWidth, 0.32, 0, Math.PI, 0, true);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.globalAlpha = 0.4;
-      ctx.fillStyle = hatShadow || "#856436";
-      ctx.beginPath();
-      ctx.ellipse(0, -0.04, rimWidth * 0.92, 0.3, 0, 0, Math.PI);
-      ctx.lineTo(rimWidth * 0.92, 0.08);
-      ctx.ellipse(0, 0.08, rimWidth * 0.92, 0.22, 0, Math.PI, 0, true);
-      ctx.closePath();
-      ctx.fill();
       ctx.restore();
     }
+    ctx.restore();
 
     drawFeetFront();
+    ctx.restore();
   };
 
   const drawSide = () => {
-    ctx.fillStyle = robeColor;
+    drawFeetSide();
+    ctx.restore();
+    const traceSideShape = () => {
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth + 0.5, -1.2 - sway);
+      ctx.quadraticCurveTo(-robeWidth - 0.2, 1.2 + belly, -1.0, robeBaseY);
+      ctx.quadraticCurveTo(0.55, robeBaseY + 0.55, 1.95, robeBaseY);
+      ctx.quadraticCurveTo(2.6, 0.9 + belly * 0.6, 2.35, -0.35);
+      ctx.quadraticCurveTo(2.45, -1.4, -robeWidth + 0.5, -1.2 - sway);
+      ctx.closePath();
+    };
+
+    ctx.save();
+    ctx.translate(0, torsoLean * 0.25);
+
+    const sideGradient = ctx.createLinearGradient(-robeWidth, -1.4, robeWidth * 1.1, robeBaseY + 0.6);
+    sideGradient.addColorStop(0, mixHexColors(robeHighlight, "#ffffff", 0.22));
+    sideGradient.addColorStop(0.6, robeColor);
+    sideGradient.addColorStop(1, mixHexColors(robeColor, "#120a12", 0.42));
+    traceSideShape();
+    ctx.fillStyle = sideGradient;
+    ctx.fill();
+
+    const strapGradient = ctx.createLinearGradient(-0.9, -1.4, 1.3, robeBaseY + 0.6);
+    strapGradient.addColorStop(0, mixHexColors(strapColor, "#160a05", 0.55));
+    strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.45));
+    ctx.fillStyle = strapGradient;
     ctx.beginPath();
-    ctx.moveTo(-robeWidth + 0.4, -1.3 - sway);
-    ctx.quadraticCurveTo(-robeWidth - 0.3, 1.0 + belly, -0.9, robeBaseY);
-    ctx.quadraticCurveTo(0.4, robeBaseY + 0.4, 1.6, robeBaseY - 0.2);
-    ctx.quadraticCurveTo(2.2, 0.8 + belly * 0.6, 2.1, -0.4);
-    ctx.quadraticCurveTo(2.3, -1.6, -robeWidth + 0.4, -1.3 - sway);
+    ctx.moveTo(-0.95, -1.18 - sway * 0.3);
+    ctx.lineTo(-0.4, -1.18 - sway * 0.3);
+    ctx.lineTo(0.82, robeBaseY - 0.12 + satchelSwing * 0.4);
+    ctx.lineTo(0.3, robeBaseY - 0.12 + satchelSwing * 0.4);
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = robeHighlight;
-    ctx.beginPath();
-    ctx.moveTo(-1.4, -0.6 - sway * 0.5);
-    ctx.quadraticCurveTo(-1.2, 0.6 + belly * 0.4, -0.5, 2.5);
-    ctx.quadraticCurveTo(0.2, 2.8, 0.9, 2.4);
-    ctx.quadraticCurveTo(1.5, 1.0, 1.2, -0.4 - sway * 0.3);
-    ctx.quadraticCurveTo(-0.1, -1.2, -1.4, -0.6 - sway * 0.5);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = sashColor;
-    ctx.beginPath();
-    ctx.ellipse(-0.2, 0.4 + belly * 0.4, robeWidth * 0.65, 0.85, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.save();
+    ctx.translate(0.55, robeBaseY - 0.05 + satchelSwing * 0.45);
+    ctx.restore();
 
     ctx.fillStyle = gloveColor;
     ctx.beginPath();
@@ -4341,53 +4558,48 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.fill();
     }
 
+    ctx.save();
+    ctx.translate(0.3, headNod * 0.9);
     ctx.fillStyle = headColor;
     ctx.beginPath();
-    ctx.ellipse(0.3, -2.0, 1.2, 1.0, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.3, -2.0, 1.35, 1.08, 0, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = faceGlow;
+    ctx.globalAlpha = 0.88;
     ctx.beginPath();
-    ctx.ellipse(0.4, -2.0, 1.3, 1.1, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.45, -2.02 + blinkAmount * 0.03, 1.35, 1.1 - blinkAmount * 0.08, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.globalAlpha = 1;
 
-    const sideEyeWidth = 0.3 + eyePulse * 0.8;
-    const sideEyeHeight = 0.35 + eyePulse * 0.5;
-    ctx.fillStyle = headColor;
-    ctx.beginPath();
-    ctx.ellipse(0.8, -1.9, 0.9, 0.82, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = faceGlow;
-    ctx.beginPath();
-    ctx.ellipse(0.86, -1.88, 1.02, 0.95, 0, 0, Math.PI * 2);
-    ctx.fill();
-
+    const sideEyeWidth = (0.34 + eyePulse * 0.54) * (1 - eyeSquint * 0.4);
+    const sideEyeHeight = Math.max(0.05, (0.42 + eyePulse * 0.45) * (1 - blinkAmount) - eyeSquint * 0.28);
     ctx.fillStyle = eyeGlow;
     ctx.beginPath();
-    ctx.ellipse(0.9, -1.9, sideEyeWidth + 0.2, sideEyeHeight + 0.16, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.92, -1.9, sideEyeWidth + 0.16, sideEyeHeight + 0.14, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = eyeColor;
     ctx.beginPath();
-    ctx.ellipse(0.96, -1.9, sideEyeWidth + 0.06, sideEyeHeight + 0.04, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.96, -1.9, sideEyeWidth, sideEyeHeight, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillStyle = `rgba(255,255,255,${(0.65 * (1 - blinkAmount)).toFixed(2)})`;
     ctx.beginPath();
-    ctx.ellipse(1.02, -1.98, 0.12, 0.16, 0, 0, Math.PI * 2);
+    ctx.ellipse(1.05, -1.94, 0.1, 0.14, 0, 0, Math.PI * 2);
     ctx.fill();
     const sidePupilColor = mutationPhase >= 3 ? "#ff2a6a" : mutationPhase >= 2 ? "#321346" : "#1b1b1b";
     const sidePupilWidth = mutationPhase >= 2 ? 0.12 : 0.18;
-    const sidePupilHeight = mutationPhase >= 2 ? 0.5 : 0.3;
+    const sidePupilHeight = Math.max(0.04, (mutationPhase >= 2 ? 0.48 : 0.28) * (1 - blinkAmount));
     ctx.fillStyle = sidePupilColor;
     ctx.beginPath();
     ctx.ellipse(0.96, -1.9, sidePupilWidth, sidePupilHeight, 0, 0, Math.PI * 2);
     ctx.fill();
+
     if (showFangs) {
       ctx.fillStyle = fangColor;
       ctx.beginPath();
-      ctx.moveTo(0.35, -1.4);
-      ctx.lineTo(0.6, -0.85);
-      ctx.lineTo(0.05, -1.08);
+      ctx.moveTo(0.45, -1.42);
+      ctx.lineTo(0.7, -0.86);
+      ctx.lineTo(0.15, -1.1);
       ctx.closePath();
       ctx.fill();
     }
@@ -4395,198 +4607,151 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     drawSideHorns();
 
     if (showHat && hatShadow && hatBase && hatHighlight) {
-      ctx.fillStyle = hatShadow;
       ctx.save();
-      ctx.globalAlpha = 0.7;
+      ctx.translate(0.08, -0.52);
+      ctx.rotate(hatTilt * 0.4);
+      const brimWidth = robeWidth + 1.25 + stageRatio * 0.18;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.beginPath();
-      ctx.ellipse(0.1, -1.95, robeWidth + 0.55, 0.55 + mutationPhase * 0.04, 0, 0, Math.PI * 2);
+      ctx.ellipse(0.05, -1.7, brimWidth * 0.9, 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
 
-      ctx.fillStyle = hatBase;
+      const brimGradient = ctx.createLinearGradient(-brimWidth, -1.4, brimWidth, -0.2);
+      brimGradient.addColorStop(0, mixHexColors(hatBase, "#1a0d10", 0.4));
+      brimGradient.addColorStop(0.5, hatBase);
+      brimGradient.addColorStop(1, mixHexColors(hatBase, hatHighlight, 0.5));
+      ctx.fillStyle = brimGradient;
       ctx.beginPath();
-      if (hatTattered) {
-        ctx.moveTo(-robeWidth, -2.2);
-        ctx.lineTo(-0.9, -3.1 - stageRatio * 0.42);
-        ctx.lineTo(-0.4, -3.7 - stageRatio * 0.5);
-        ctx.lineTo(-0.1, -4.6 - stageRatio * 0.58);
-        ctx.lineTo(0.2, -3.9 - stageRatio * 0.4);
-        ctx.lineTo(0.6, -4.8 - stageRatio * 0.58);
-        ctx.lineTo(1.2, -4.0 - stageRatio * 0.42);
-        ctx.lineTo(1.7, -4.8 - stageRatio * 0.54);
-        ctx.quadraticCurveTo(2.8, -3.4 - stageRatio * 0.4, 2.3, -2.05);
-      } else {
-        ctx.moveTo(-robeWidth, -2.2);
-        ctx.quadraticCurveTo(-0.8, -3.1 - stageRatio * 0.4, 0.3, -4.4 - stageRatio * 0.5);
-        ctx.quadraticCurveTo(1.1, -5.2 - stageRatio * 0.55, 2.2, -4.4 - stageRatio * 0.5);
-        ctx.quadraticCurveTo(2.9, -3.4 - stageRatio * 0.4, 2.4, -2.1);
-      }
-      ctx.quadraticCurveTo(0.8, -2.5, -robeWidth, -2.2);
+      ctx.ellipse(0.05, -1.82, brimWidth * 0.84, 0.46, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const crownGradient = ctx.createLinearGradient(0, -4.2 - stageRatio * 0.5, 0, -1.7);
+      crownGradient.addColorStop(0, mixHexColors(hatHighlight, "#ffffff", 0.22));
+      crownGradient.addColorStop(0.6, hatBase);
+      crownGradient.addColorStop(1, mixHexColors(hatBase, hatShadow, 0.5));
+      ctx.fillStyle = crownGradient;
+      ctx.beginPath();
+      ctx.moveTo(-1.0, -2.45);
+      ctx.quadraticCurveTo(-0.55, -3.5 - stageRatio * 0.55, 0, -4.7 - stageRatio * 0.55);
+      ctx.quadraticCurveTo(1.0, -5.2 - stageRatio * 0.45, 1.45, -3.85 - stageRatio * 0.35);
+      ctx.quadraticCurveTo(0.62, -3.05, -0.2, -2.15 - stageRatio * 0.25);
       ctx.closePath();
       ctx.fill();
-
-      ctx.fillStyle = hatHighlight;
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath();
-      if (hatTattered) {
-        ctx.moveTo(0.05, -3.7 - stageRatio * 0.45);
-        ctx.lineTo(0.6, -3.5 - stageRatio * 0.38);
-        ctx.lineTo(0.3, -2.9 - stageRatio * 0.32);
-        ctx.closePath();
-      } else {
-        ctx.moveTo(0.2, -3.8 - stageRatio * 0.45);
-        ctx.quadraticCurveTo(1.0, -3.6 - stageRatio * 0.4, 1.6, -2.8 - stageRatio * 0.35);
-        ctx.quadraticCurveTo(0.8, -2.9, 0.2, -3.0 - stageRatio * 0.35);
-        ctx.closePath();
-      }
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.restore();
     }
-
-    drawFeetSide();
+    ctx.restore();
   };
 
   const drawBack = () => {
-    ctx.fillStyle = robeColor;
+    drawFeetFront();
+    ctx.restore();
+    const traceBackShape = () => {
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth, -1.05 - sway);
+      ctx.quadraticCurveTo(-robeWidth - 0.55, 0.7 + belly, -robeWidth * 0.6, robeBaseY - 0.12);
+      ctx.quadraticCurveTo(0, robeBaseY + 0.32, robeWidth * 0.6, robeBaseY - 0.12);
+      ctx.quadraticCurveTo(robeWidth + 0.55, 0.7 + belly, robeWidth, -1.05 - sway);
+      ctx.quadraticCurveTo(0, -2.3 - sway * 0.35, -robeWidth, -1.05 - sway);
+      ctx.closePath();
+    };
+
+    ctx.save();
+    ctx.translate(0, torsoLean * 0.2);
+
+    const backGradient = ctx.createLinearGradient(0, -1.6, 0, robeBaseY + 0.6);
+    backGradient.addColorStop(0, mixHexColors(robeHighlight, "#ffffff", 0.18));
+    backGradient.addColorStop(0.55, robeColor);
+    backGradient.addColorStop(1, mixHexColors(robeColor, "#0f060d", 0.45));
+    traceBackShape();
+    ctx.fillStyle = backGradient;
+    ctx.fill();
+
     ctx.beginPath();
-    ctx.moveTo(-robeWidth, -1.1 - sway);
-    ctx.quadraticCurveTo(-robeWidth - 0.6, 0.95 + belly, -1.05, robeBaseY);
-    ctx.quadraticCurveTo(0, robeBaseY + 0.5, 1.05, robeBaseY);
-    ctx.quadraticCurveTo(robeWidth + 0.6, 0.95 + belly, robeWidth, -1.1 - sway);
-    ctx.quadraticCurveTo(0, -2.4 - sway * 0.4, -robeWidth, -1.1 - sway);
+    ctx.fillStyle = mixHexColors(robeColor, "#24121f", 0.18);
+    ctx.ellipse(0, robeBaseY - 0.08, robeWidth * (0.84 + satchelSwing * 0.04), 0.72 + satchelSwing * 0.04, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const strapGradient = ctx.createLinearGradient(-robeWidth, -1.2, robeWidth, robeBaseY + 0.5);
+    strapGradient.addColorStop(0, mixHexColors(strapColor, "#140904", 0.55));
+    strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.4));
+    ctx.fillStyle = strapGradient;
+    ctx.beginPath();
+    ctx.moveTo(-robeWidth + 0.4, -1.05 - sway * 0.2);
+    ctx.lineTo(-robeWidth + 1.0, -1.0 - sway * 0.2);
+    ctx.lineTo(robeWidth - 0.6, robeBaseY + 0.2 + satchelSwing * 0.4);
+    ctx.lineTo(robeWidth - 1.2, robeBaseY + 0.2 + satchelSwing * 0.4);
     ctx.closePath();
     ctx.fill();
+
+    ctx.save();
+    ctx.restore();
 
     ctx.fillStyle = headColor;
     ctx.beginPath();
     ctx.ellipse(0, -2.0, 1.8, 1.25, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.save();
+    ctx.translate(0, headNod * 0.5);
     drawBackSpines();
     drawBackHorns();
 
     if (showHat && hatBase && hatShadow && hatHighlight) {
       ctx.save();
-      ctx.translate(0, -1.15);
-      ctx.fillStyle = hatBase;
-      const brimWidth = robeWidth + 1.15;
+      ctx.translate(0, -0.48);
+      ctx.rotate(hatTilt * 0.28);
+      const brimWidth = robeWidth + 1.28 + stageRatio * 0.14;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.beginPath();
-      ctx.ellipse(0, 0.05, brimWidth, 0.58, 0, 0, Math.PI);
-      ctx.lineTo(brimWidth, 0.32);
-      ctx.ellipse(0, 0.32, brimWidth, 0.42, 0, Math.PI, 0, true);
-      ctx.closePath();
+      ctx.ellipse(0, -1.62, brimWidth, 0.56, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = hatShadow;
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath();
-      ctx.ellipse(0, 0.12, brimWidth * 0.92, 0.34, 0, 0, Math.PI);
-      ctx.lineTo(brimWidth * 0.92, 0.38);
-      ctx.ellipse(0, 0.38, brimWidth * 0.92, 0.24, 0, Math.PI, 0, true);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
 
-      ctx.fillStyle = hatBase;
+      const brimGradient = ctx.createLinearGradient(-brimWidth, -1.4, brimWidth, -0.2);
+      brimGradient.addColorStop(0, mixHexColors(hatBase, "#1a0d10", 0.4));
+      brimGradient.addColorStop(0.5, hatBase);
+      brimGradient.addColorStop(0, mixHexColors(hatBase, hatHighlight, 0.5));
+      ctx.fillStyle = brimGradient;
+      ctx.beginPath();
+      ctx.ellipse(0, -1.74, brimWidth, 0.44, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const crownGradient = ctx.createLinearGradient(0, -4.1 - stageRatio * 0.46, 0, -1.2);
+      crownGradient.addColorStop(0, mixHexColors(hatHighlight, "#ffffff", 0.2));
+      crownGradient.addColorStop(0.6, hatBase);
+      crownGradient.addColorStop(1, mixHexColors(hatBase, hatShadow, 0.5));
+      ctx.fillStyle = crownGradient;
       ctx.beginPath();
       if (hatTattered) {
-        ctx.moveTo(-robeWidth - 0.5, -2.0);
-        ctx.lineTo(-1.2, -3.0 - stageRatio * 0.5);
-        ctx.lineTo(-0.8, -4.5 - stageRatio * 0.6);
+        ctx.moveTo(-robeWidth - 0.5, -2.1);
+        ctx.lineTo(-1.1, -3.3 - stageRatio * 0.45);
+        ctx.lineTo(-0.7, -4.5 - stageRatio * 0.55);
         ctx.lineTo(-0.1, -4.0 - stageRatio * 0.45);
-        ctx.lineTo(0.4, -5.2 - stageRatio * 0.6);
-        ctx.lineTo(1.0, -4.1 - stageRatio * 0.45);
-        ctx.lineTo(1.4, -4.9 - stageRatio * 0.55);
-        ctx.quadraticCurveTo(robeWidth + 0.6, -2.1, robeWidth + 0.5, -1.9);
+        ctx.lineTo(0.5, -5.0 - stageRatio * 0.58);
+        ctx.lineTo(1.0, -4.0 - stageRatio * 0.45);
+        ctx.lineTo(1.4, -4.8 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(robeWidth + 0.6, -2.1, robeWidth + 0.45, -1.9);
       } else {
         ctx.moveTo(-robeWidth - 0.4, -1.9);
-        ctx.quadraticCurveTo(-1.2, -3.1 - stageRatio * 0.45, -0.6, -4.8 - stageRatio * 0.55);
-        ctx.quadraticCurveTo(0, -5.7 - stageRatio * 0.55, 0.7, -4.9 - stageRatio * 0.55);
+        ctx.quadraticCurveTo(-1.2, -3.1 - stageRatio * 0.4, -0.6, -4.7 - stageRatio * 0.5);
+        ctx.quadraticCurveTo(0, -5.4 - stageRatio * 0.5, 0.8, -4.7 - stageRatio * 0.5);
         ctx.quadraticCurveTo(1.4, -3.6 - stageRatio * 0.45, robeWidth + 0.4, -1.9);
       }
-      ctx.quadraticCurveTo(0, -2.6, -robeWidth - 0.4, -1.9);
+      ctx.quadraticCurveTo(0, -2.4, -robeWidth - 0.4, -1.9);
       ctx.closePath();
       ctx.fill();
-
-      ctx.fillStyle = hatShadow;
-      ctx.beginPath();
-      ctx.ellipse(0, -1.7, robeWidth + 0.75, 0.7 + mutationPhase * 0.05, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = hatHighlight;
-      ctx.globalAlpha = 0.35;
-      ctx.beginPath();
-      if (hatTattered) {
-        ctx.moveTo(-0.2, -4.6 - stageRatio * 0.55);
-        ctx.lineTo(0.3, -5.0 - stageRatio * 0.55);
-        ctx.lineTo(0.6, -4.2 - stageRatio * 0.45);
-        ctx.closePath();
-      } else {
-        ctx.moveTo(-0.4, -4.7 - stageRatio * 0.55);
-        ctx.quadraticCurveTo(0.1, -5.1 - stageRatio * 0.55, 0.6, -4.6 - stageRatio * 0.5);
-        ctx.quadraticCurveTo(0.1, -4.4 - stageRatio * 0.45, -0.4, -4.2 - stageRatio * 0.4);
-        ctx.closePath();
-      }
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    drawFeetFront();
-  };
-
-  const drawSparkles = () => {
-    const sparkleCount = 6;
-    const baseRadius = 2.2 + stageRatio * 0.18 + mutationPhase * 0.15;
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    for (let i = 0; i < sparkleCount; i += 1) {
-      const angle = (i / sparkleCount) * Math.PI * 2;
-      const radius =
-        baseRadius + Math.sin(animationTime * 0.006 + i * 1.7) * (0.12 + mutationPhase * 0.05);
-      const xOffset = Math.cos(angle) * radius;
-      const yOffset = Math.sin(angle) * (radius * 0.6) - 1.1;
-      const sizeBase = 0.2 + stageRatio * 0.08;
-      const size =
-        sizeBase + Math.sin(animationTime * 0.01 + i * 2.1) * (0.05 + mutationPhase * 0.015);
-      ctx.save();
-      const alphaBase = sparkleAlphaBias + stageRatio * 0.18;
-      const alphaPulse = 0.08 + mutationPhase * 0.04;
-      ctx.globalAlpha = alphaBase + Math.sin(animationTime * 0.006 + i) * alphaPulse;
-      ctx.fillStyle = i % 2 === 0 ? sparkleColor : sparkleSecondaryColor;
-      ctx.beginPath();
-      ctx.ellipse(xOffset, yOffset, size, size * 0.6, angle, 0, Math.PI * 2);
-      ctx.fill();
-      if (mutationPhase >= 3) {
-        ctx.globalAlpha *= 0.6;
-        ctx.fillStyle = "rgba(255,80,140,0.85)";
-        ctx.beginPath();
-        ctx.ellipse(
-          xOffset * 0.9,
-          yOffset * 0.9 - 0.2,
-          size * 0.65,
-          size * 0.45,
-          angle,
-          0,
-          Math.PI * 2,
-        );
-        ctx.fill();
-      }
       ctx.restore();
     }
     ctx.restore();
   };
 
   if (isBack) {
+    drawStaff();
     drawBack();
   } else if (isSide) {
     drawSide();
+    drawStaff();
   } else {
     drawFront();
-  }
-
-  drawSparkles();
-
-  ctx.restore();
-
-  if (!isBack) {
     drawStaff();
   }
 
@@ -4616,6 +4781,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.restore();
   }
 
+  ctx.restore();
   ctx.restore();
 }
 
@@ -5652,8 +5818,24 @@ function drawDamageNumbers(offsetX, offsetY) {
 function drawParticles(offsetX, offsetY) {
   particles.forEach((p) => {
     const alpha = p.life / p.maxLife;
-    ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha.toFixed(2)})`;
-    ctx.fillRect(p.x - offsetX, p.y - offsetY, p.size, p.size);
+    if (p.type === "foot") {
+      const footprintAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.save();
+      ctx.translate(p.x - offsetX, p.y - offsetY);
+      ctx.globalAlpha = footprintAlpha * 0.7;
+      ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, 1)`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.size * 0.6, p.size * 0.32, player.lastFacingX || 0 ? Math.atan2(player.lastFacingY || 1, player.lastFacingX || 0) : 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = footprintAlpha * 0.45;
+      ctx.beginPath();
+      ctx.ellipse(0, -1.6, p.size * 0.28, p.size * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha.toFixed(2)})`;
+      ctx.fillRect(p.x - offsetX, p.y - offsetY, p.size, p.size);
+    }
   });
 }
 
@@ -5830,6 +6012,16 @@ function hexToRgb(hex) {
     g: (value >> 8) & 255,
     b: value & 255,
   };
+}
+
+function mixHexColors(baseHex, mixHex, amount = 0.5) {
+  const base = hexToRgb(baseHex);
+  const mix = hexToRgb(mixHex);
+  const clamp = (v) => Math.max(0, Math.min(255, v));
+  const r = clamp(Math.round(base.r + (mix.r - base.r) * amount));
+  const g = clamp(Math.round(base.g + (mix.g - base.g) * amount));
+  const b = clamp(Math.round(base.b + (mix.b - base.b) * amount));
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 function isWalkable(x, y, radius, shrink = 1) {
