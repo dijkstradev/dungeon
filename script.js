@@ -23,6 +23,10 @@ const pauseBtn = document.getElementById("pause-btn");
 const infoBtn = document.getElementById("info-btn");
 const infoOverlay = document.getElementById("info-overlay");
 const infoClose = document.getElementById("info-close");
+const startOverlay = document.getElementById("start-overlay");
+const startBtn = document.getElementById("start-btn");
+const spellSlotEls = Array.from(document.querySelectorAll(".spell-slot"));
+let initialStart = false;
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
 
 const BASE_PLAYER_MAX_HEALTH = 100;
@@ -41,7 +45,7 @@ const GUN_COOLDOWN_STEP = 30;
 const GUN_RANGE_STEP = 14;
 const GUN_COOLDOWN_MIN = 180;
 const ENEMY_SPAWN_FLASH = 520;
-const BASE_HUNGER_RATE = 0.34;
+const BASE_HUNGER_RATE = 0.45;
 const MEAT_COLOR = "#ff9b3d";
 const MAX_MUTATION_STAGE = 20;
 const ELITE_ENEMY_UNLOCK_MS = 5 * 60 * 1000;
@@ -57,6 +61,9 @@ const DECOR_TYPES = [
   "stalactite_small",
   "stalactite_tall",
   "moss_patch",
+  "glowing_moss",
+  "glowing_moss_field",
+  "hanging_vine",
   "fungus_cluster",
   "bone_pile",
   "skull",
@@ -81,6 +88,27 @@ const DECOR_ANIM_SETTINGS = {
   stalactite_small: { base: 0.82, alpha: 0.04, wobble: 0.8 },
   stalactite_tall: { base: 0.82, alpha: 0.05, wobble: 1.2 },
   moss_patch: { base: 0.84, alpha: 0.035, wobble: 0.5 },
+  glowing_moss: {
+    base: 0.9,
+    alpha: 0.06,
+    wobble: 0.35,
+    sparkle: true,
+    sparkleColor: "rgba(140,255,190,0.45)",
+    sparkleScale: 1.3,
+  },
+  glowing_moss_field: {
+    base: 0.92,
+    alpha: 0.08,
+    wobble: 0.25,
+    sparkle: true,
+    sparkleColor: "rgba(140,255,200,0.35)",
+    sparkleScale: 1.6,
+  },
+  hanging_vine: {
+    base: 0.9,
+    alpha: 0.05,
+    wobble: 0.4,
+  },
   fungus_cluster: {
     base: 0.87,
     alpha: 0.07,
@@ -164,6 +192,54 @@ const DECOR_ANIM_SETTINGS = {
   home_lounge: { base: 0.95, alpha: 0.02, wobble: 0.16 },
   home_rug: { base: 0.97, alpha: 0.012, wobble: 0.08 },
   home_books: { base: 0.95, alpha: 0.02, wobble: 0.14 },
+  home_bed_large: { base: 0.96, alpha: 0.02, wobble: 0.16 },
+  home_potion_table_large: {
+    base: 0.94,
+    alpha: 0.05,
+    wobble: 0.32,
+    sparkle: true,
+    sparkleColor: "rgba(120,210,255,0.4)",
+    sparkleScale: 1.25,
+  },
+  home_lounge_large: { base: 0.95, alpha: 0.028, wobble: 0.2 },
+  home_books_large: { base: 0.95, alpha: 0.028, wobble: 0.18 },
+  home_rug_large: { base: 0.97, alpha: 0.015, wobble: 0.1 },
+  home_feast_table: { base: 0.93, alpha: 0.035, wobble: 0.25 },
+  home_storage: { base: 0.92, alpha: 0.024, wobble: 0.18 },
+  home_cauldron: {
+    base: 0.94,
+    alpha: 0.06,
+    wobble: 0.34,
+    sparkle: true,
+    sparkleColor: "rgba(120,255,200,0.35)",
+    sparkleScale: 1.4,
+  },
+  home_rug_grand: { base: 0.97, alpha: 0.012, wobble: 0.08 },
+  home_round_table: { base: 0.95, alpha: 0.02, wobble: 0.22 },
+  home_round_table_large: { base: 0.95, alpha: 0.024, wobble: 0.24 },
+  home_chair: { base: 0.95, alpha: 0.02, wobble: 0.18 },
+  home_lamp: {
+    base: 0.92,
+    alpha: 0.04,
+    wobble: 0.3,
+    sparkle: true,
+    sparkleColor: "rgba(255,236,180,0.45)",
+    sparkleScale: 1.3,
+  },
+  home_spell_table: { base: 0.94, alpha: 0.045, wobble: 0.3, sparkle: true, sparkleColor: "rgba(160,120,255,0.35)", sparkleScale: 1.1 },
+  home_scroll_table: { base: 0.94, alpha: 0.03, wobble: 0.24 },
+  home_potion_shelf: { base: 0.93, alpha: 0.02, wobble: 0.18 },
+  home_crystal_pedestal: {
+    base: 0.92,
+    alpha: 0.05,
+    wobble: 0.28,
+    sparkle: true,
+    sparkleColor: "rgba(150,130,255,0.4)",
+    sparkleScale: 1.2,
+  },
+  floor_rune_ember: { base: 0.93, alpha: 0.05, wobble: 0.14 },
+  floor_rune_tide: { base: 0.92, alpha: 0.05, wobble: 0.12 },
+  floor_rune_verdant: { base: 0.93, alpha: 0.05, wobble: 0.16 },
 };
 
 const DECOR_GROUPS = {
@@ -172,6 +248,9 @@ const DECOR_GROUPS = {
   stalactite_small: ["stalactite_small", "stalactite_tall", "spider_web"],
   stalactite_tall: ["stalactite_small", "stalactite_tall", "spider_web"],
   moss_patch: ["moss_patch", "fungus_cluster", "drip_pool"],
+  glowing_moss: ["glowing_moss", "moss_patch", "fungus_cluster"],
+  glowing_moss_field: ["glowing_moss_field", "glowing_moss", "moss_patch"],
+  hanging_vine: ["hanging_vine", "glowing_moss", "stalactite_tall"],
   fungus_cluster: ["fungus_cluster", "moss_patch", "crystal_blue"],
   bone_pile: ["bone_pile", "skull", "rubble_heap"],
   skull: ["skull", "bone_pile", "ancient_rune"],
@@ -214,6 +293,7 @@ const player = {
   x: spawnPoint.x * CELL_SIZE + CELL_SIZE / 2,
   y: spawnPoint.y * CELL_SIZE + CELL_SIZE / 2,
   radius: 18,
+  baseSpeed: 240,
   speed: 240,
   maxHealth: BASE_PLAYER_MAX_HEALTH,
   health: BASE_PLAYER_MAX_HEALTH,
@@ -236,10 +316,14 @@ const player = {
   mutationStage: 0,
   lastFacingX: 0,
   lastFacingY: 1,
+  speedBoostTimer: 0,
+  terrashieldTimer: 0,
+  terrashieldArmorTimer: 0,
+  terrashieldBurstPending: false,
 };
 
 const state = {
-  running: true,
+  running: false,
   over: false,
   startedAt: performance.now(),
   kills: 0,
@@ -253,6 +337,7 @@ let achievementTimer = 0;
 let lastTimestamp = performance.now();
 let animationTime = 0;
 let hungerWarningLevel = 0;
+let hasteTrailAccumulator = 0;
 
 const keys = { up: false, down: false, left: false, right: false };
 
@@ -263,9 +348,12 @@ const joystickState = {
   dy: 0,
 };
 
+let nextSpellSpawnIndex = 0;
+const spellSlots = [null, null, null];
+
 const enemies = [];
 let spawnAccumulator = 0;
-const SPAWN_INTERVAL = 2400;
+const SPAWN_INTERVAL = 3600;
 const SENTRY_VISION_RANGE = CELL_SIZE * 7.5;
 const SENTRY_LOSE_RANGE = CELL_SIZE * 9;
 const STUCK_THRESHOLD = 450;
@@ -413,7 +501,47 @@ const healthDrops = [];
 const HEALTH_RESPAWN = 15000;
 let healthAccumulator = HEALTH_RESPAWN;
 const HEALTH_AMOUNT = 25;
+const spellDrops = [];
+const SPELL_RESPAWN = 20000;
+let spellAccumulator = SPELL_RESPAWN;
+const SPELL_TYPES = [
+  { id: "blast", label: "Arc Blast", rune: "blast", color: "#f9d64c" },
+  { id: "heal", label: "Sanctify", rune: "heal", color: "#8ef9ff" },
+  { id: "haste", label: "Swiftstep", rune: "haste", color: "#b0ff6a" },
+  { id: "terrashield", label: "Terrashield", rune: "terrashield", color: "#8cff8a" },
+];
+nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
+const SPELL_SLOT_RUNES = {
+  blast:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 4l2.8 6.8 6.8 2.8-6.8 2.8-2.8 6.8-2.8-6.8-6.8-2.8 6.8-2.8z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><circle cx="16" cy="16" r="3.6" fill="currentColor"/></svg>',
+  heal:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6v20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M9.5 13c2.6-4.2 10.4-4.2 13 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 19c2.4 3.8 10.6 3.8 13.2 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="16" r="3" fill="currentColor"/></svg>',
+  haste:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M22 9c-7-4-14 1.5-11.5 7 2 4 6.8 4.4 10 2.3" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.5 13.5c1.8-1.4 5.5-1.4 7.3 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M12.2 20.8c3 2.6 8 2.8 10.6-0.4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M11 11c-1.6 1.4-2.4 4.2-0.8 6.2" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>',
+  terrashield:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V10z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M16 11v7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15l4 3 4-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+};
+const SPELL_BLAST_RANGE_MULTIPLIER = 2;
+const SPELL_BLAST_DAMAGE_MULTIPLIER = 1.75;
+const SPEED_SPELL_DURATION = 15000;
+const SPEED_SPELL_MULTIPLIER = 1.45;
 const MIN_PICKUP_DISTANCE = CELL_SIZE * 9;
+const TERRASHIELD_ROOT_DURATION = 1800;
+const TERRASHIELD_ARMOR_DURATION = 3200;
+const TERRASHIELD_BURST_RADIUS = 140;
+const TERRASHIELD_DAMAGE_MULTIPLIER = 2.3;
+const TERRASHIELD_ARMOR_REDUCTION = 0.45;
+const LIFEBLOOM_HEAL_RANGE = CELL_SIZE * 1.1;
+const COMPANION_BOND_DISTANCE = CELL_SIZE * 1.2;
+const LIFEBLOOM_FOLLOW_DISTANCE = CELL_SIZE * 0.55;
+const COMPANION_FOLLOW_DISTANCE = CELL_SIZE * 0.62;
+const COMPANION_FOLLOW_SPEED_MULT = 1.12;
+const COMPANION_SPEED_BONUS = 60;
+const COMPANION_NEAR_PLAYER_RADIUS = CELL_SIZE * 10;
+const COMPANION_MIN_SPAWN_DISTANCE = CELL_SIZE * 1.4;
+const COMPANION_SPAWN_INTERVAL = 62000;
+const ECHOSPRITE_MANA_INTERVAL = 1700;
+const ECHOSPRITE_COOLDOWN_REDUCTION = 0.4;
 const PICKUP_LIFETIME = 60000;
 const MEAT_HUNGER_RESTORE = 2;
 const HUNGER_MAX = 100;
@@ -424,16 +552,20 @@ const HUNGER_WARNING_THRESHOLD = 70;
 const HUNGER_CRITICAL_THRESHOLD = 90;
 
 const particles = [];
+const spellEffects = [];
 const manaUsedPositions = new Set();
 const healthUsedPositions = new Set();
+const spellUsedPositions = new Set();
+const damageNumbers = [];
 const TITAN_SPAWN_INTERVAL = 60000;
 let titanAccumulator = 0;
 const meatDrops = [];
 const meatUsedPositions = new Set();
-const MEAT_DROP_PROBABILITY = 0.58;
 const ENEMY_PREY_HEALTH_THRESHOLD = 0.3;
 const ENEMY_PREY_OPPORTUNITY_RANGE = CELL_SIZE * 4;
 const ENEMY_PREY_FEAST_HEAL = 60;
+const enemyAggroFlags = {};
+const ALWAYS_AGGRESSIVE_VARIANTS = new Set(["voidreaver", "doomclaw", "blightfang", "blightreaver", "titan"]);
 const PREY_TYPES = [
   { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.24, radius: 14, groupMin: 1, groupMax: 2 },
   { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.20, radius: 14, groupMin: 1, groupMax: 2 },
@@ -441,9 +573,19 @@ const PREY_TYPES = [
   { id: "hootling", speed: 155, health: 48, color: "#b6ff9a", weight: 0.16, radius: 14, groupMin: 1, groupMax: 2 },
   { id: "spritelings", speed: 175, health: 24, color: "#9effd6", weight: 0.14, radius: 10, groupMin: 3, groupMax: 6, pack: true },
   { id: "boulderback", speed: 110, health: 140, color: "#9a774c", weight: 0.08, radius: 24, groupMin: 1, groupMax: 1 },
+  { id: "lifebloom", speed: 80, health: 70, color: "#8cffb4", weight: 0.1, radius: 18, groupMin: 1, groupMax: 1 },
+  { id: "glintmoth", speed: 165, health: 52, color: "#ffe78a", weight: 0.12, radius: 16, groupMin: 1, groupMax: 1 },
+  { id: "echosprite", speed: 150, health: 44, color: "#9ec9ff", weight: 0.09, radius: 14, groupMin: 1, groupMax: 1 },
 ];
+const COMPANION_VARIANTS = new Set(["lifebloom", "glintmoth", "echosprite"]);
+const COMPANION_VARIANT_LIST = ["lifebloom", "glintmoth", "echosprite"];
+const COMPANION_VARIANT_LIMITS = {
+  lifebloom: 1,
+  glintmoth: 2,
+  echosprite: 2,
+};
 const PREY_SPAWN_INTERVAL = 8500;
-const MAX_PREY = 10;
+const MAX_PREY = 14;
 const PREY_IDLE_MIN = 1400;
 const PREY_IDLE_MAX = 3000;
 const PREY_FLEE_RANGE = CELL_SIZE * 3.2;
@@ -453,6 +595,9 @@ const PREY_PATROL_SPREAD = CELL_SIZE * 3.2;
 const PREY_MEAT_RESTORE = 4;
 const PREY_MEAT_COLOR = "#ffb97f";
 const preyList = [];
+let companionSpeedBonus = 0;
+let companionEchoAccumulator = 0;
+let companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL;
 let preyAccumulator = PREY_SPAWN_INTERVAL;
 let ensuredPackPrey = false;
 let ensuredGiantPrey = false;
@@ -474,6 +619,9 @@ function updateCanvasSize() {
   minimapCanvas.style.width = `${minimapSize}px`;
   minimapCanvas.style.height = `${minimapSize}px`;
   minimapCtx.setTransform(1, 0, 0, 1, 0, 0);
+  const slotSize = isMobile ? 48 : 54;
+  document.documentElement.style.setProperty("--minimap-size", `${minimapSize}px`);
+  document.documentElement.style.setProperty("--spell-slot-size", `${slotSize}px`);
 }
 
 function resetGame() {
@@ -493,6 +641,12 @@ function resetGame() {
   player.facingX = 1;
   player.facingY = 0;
   player.shootingTimer = 0;
+  player.baseSpeed = 240;
+  player.speed = player.baseSpeed;
+  player.speedBoostTimer = 0;
+  player.terrashieldTimer = 0;
+  player.terrashieldArmorTimer = 0;
+  player.terrashieldBurstPending = false;
   player.gunLevel = 0;
   player.nextGunUpgrade = GUN_UPGRADE_FIRST;
   player.hunger = 0;
@@ -505,15 +659,35 @@ function resetGame() {
   manaDrops.length = 0;
   healthDrops.length = 0;
   meatDrops.length = 0;
+  spellDrops.length = 0;
   particles.length = 0;
+  spellEffects.length = 0;
+  damageNumbers.length = 0;
   manaUsedPositions.clear();
   healthUsedPositions.clear();
   meatUsedPositions.clear();
+  spellUsedPositions.clear();
+  nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
+  for (let i = 0; i < spellSlots.length; i += 1) {
+    spellSlots[i] = null;
+  }
+  SPELL_TYPES.forEach((spell, index) => {
+    if (index < spellSlots.length) {
+      spellSlots[index] = spell.id;
+    }
+  });
+  Object.keys(enemyAggroFlags).forEach((key) => {
+    delete enemyAggroFlags[key];
+  });
   spawnAccumulator = 0;
   manaAccumulator = MANA_RESPAWN;
   healthAccumulator = HEALTH_RESPAWN;
+  spellAccumulator = SPELL_RESPAWN;
   titanAccumulator = 0;
   preyList.length = 0;
+  companionSpeedBonus = 0;
+  companionEchoAccumulator = 0;
+  companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL * 0.85;
   preyAccumulator = PREY_SPAWN_INTERVAL;
   ensuredPackPrey = false;
   ensuredGiantPrey = false;
@@ -533,14 +707,29 @@ function resetGame() {
   }
   achievementTimer = 0;
   hungerWarningLevel = 0;
+  hasteTrailAccumulator = 0;
   document.body.classList.add("show-minimap");
   createManaDrop();
   createHealthDrop();
   createTitanEnemy();
+  spawnHomeLifebloom();
+  spawnHomeGlintmoth();
+  spawnCompanionNearPlayer("echosprite", { originX: player.x, originY: player.y, maxDistance: COMPANION_NEAR_PLAYER_RADIUS * 0.6 });
   for (let i = 0; i < Math.min(4, MAX_PREY); i += 1) {
     createPrey();
   }
+  updateSpellSlotsUI();
   updateHUD();
+}
+
+function startGame() {
+  if (initialStart) return;
+  initialStart = true;
+  if (startOverlay) {
+    startOverlay.classList.add("start-overlay--hidden");
+    startOverlay.setAttribute("aria-hidden", "true");
+  }
+  resetGame();
 }
 
 function createEnemy() {
@@ -572,6 +761,18 @@ function createEnemy() {
     shadowWidth: template.shadowWidth,
     shadowHeight: template.shadowHeight,
     collisionShrink: template.collisionShrink,
+    walkCycle: 0,
+    glowPhase: Math.random() * Math.PI * 2,
+    attackTimer: 0,
+    dashRange: template.dashRange ?? CELL_SIZE * 2.4,
+    dashCooldownBase: template.dashCooldown ?? 2100,
+    dashCooldownTimer: Math.random() * ((template.dashCooldown ?? 2100) * 0.7),
+    dashDuration: template.dashDuration ?? 220,
+    dashSpeedMultiplier: template.dashSpeedMultiplier ?? 1.85,
+    isDashing: false,
+    dashTimer: 0,
+    dashDirX: 0,
+    dashDirY: 0,
   };
   if (template.lungeRange) {
     enemy.lungeRange = template.lungeRange;
@@ -592,7 +793,7 @@ function createEnemy() {
     assignPatrolTarget(enemy);
   }
   enemies.push(enemy);
-  spawnParticles(enemy.x, enemy.y, template.color, 140, 20);
+    spawnParticles(enemy.x, enemy.y, template.color, 140, 20);
 }
 
 function createTitanEnemy() {
@@ -646,6 +847,7 @@ function createTitanEnemy() {
     walkCycle: 0,
     glowPhase: Math.random() * Math.PI * 2,
     spawnTimer: ENEMY_SPAWN_FLASH,
+    attackTimer: 0,
   };
   enemies.push(enemy);
   spawnParticles(enemy.x, enemy.y, template.color, 160, 26);
@@ -719,6 +921,57 @@ function createHealthDrop() {
   });
 }
 
+function createSpellDrop() {
+  const drop = generatePickupLocation(MIN_PICKUP_DISTANCE * 1.4);
+  const spell = SPELL_TYPES[nextSpellSpawnIndex % SPELL_TYPES.length];
+  nextSpellSpawnIndex = (nextSpellSpawnIndex + 1) % SPELL_TYPES.length;
+  spellUsedPositions.add(drop.key);
+  spellDrops.push({
+    x: drop.x,
+    y: drop.y,
+    radius: 22,
+    lifetime: PICKUP_LIFETIME * 1.4,
+    key: drop.key,
+    bobPhase: Math.random() * Math.PI * 2,
+    bobOffset: 0,
+    spellId: spell.id,
+    color: spell.color,
+  });
+}
+
+function addPreyFromTemplate(template, spawnX, spawnY, overrides = {}) {
+  const radius = template.radius ?? 14;
+  const isCompanion =
+    overrides.companion !== undefined ? overrides.companion : COMPANION_VARIANTS.has(template.id);
+  const prey = {
+    x: spawnX,
+    y: spawnY,
+    radius,
+    speed: template.speed,
+    maxHealth: template.health,
+    health: template.health,
+    color: template.color,
+    variant: template.id,
+    state: "idle",
+    idleTimer: PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN),
+    spawnTimer: ENEMY_SPAWN_FLASH,
+    animTimer: 0,
+    targetX: null,
+    targetY: null,
+    pack: !!template.pack,
+    healTimer: 0,
+    companion: isCompanion,
+    bonded: false,
+    bondAngle: Math.random() * Math.PI * 2,
+    bondSpin: 0,
+    effectTimer: 0,
+    auraTimer: 0,
+  };
+  Object.assign(prey, overrides);
+  preyList.push(prey);
+  return prey;
+}
+
 function createPrey() {
   if (preyList.length >= MAX_PREY) return;
   const template = pickPreyType();
@@ -733,6 +986,7 @@ function createPrey() {
   const desiredCount = groupMin + Math.floor(Math.random() * Math.max(1, groupMax - groupMin + 1));
   let spawnCount = Math.max(1, Math.min(desiredCount, MAX_PREY - preyList.length));
   const radius = template.radius ?? 14;
+  const isCompanion = COMPANION_VARIANTS.has(template.id);
 
   for (let i = 0; i < spawnCount; i += 1) {
     let spawnX = baseX;
@@ -754,22 +1008,9 @@ function createPrey() {
       }
     }
     if (!isWalkable(spawnX, spawnY, radius)) continue;
-    preyList.push({
-      x: spawnX,
-      y: spawnY,
-      radius,
-      speed: template.speed,
-      maxHealth: template.health,
-      health: template.health,
-      color: template.color,
-      variant: template.id,
-      state: "idle",
-      idleTimer: PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN),
-      spawnTimer: ENEMY_SPAWN_FLASH,
-      animTimer: 0,
-      targetX: null,
-      targetY: null,
+    addPreyFromTemplate(template, spawnX, spawnY, {
       pack: !!template.pack,
+      companion: isCompanion,
     });
     if (template.id === "spritelings") ensuredPackPrey = true;
     if (template.id === "boulderback") ensuredGiantPrey = true;
@@ -777,9 +1018,182 @@ function createPrey() {
   }
 }
 
+function spawnHomeLifebloom() {
+  if (preyList.length >= MAX_PREY) return;
+  const template = PREY_TYPES.find((prey) => prey.id === "lifebloom");
+  if (!template) return;
+  const homeRoom = dungeonRooms.find((room) => room.isHome);
+  if (!homeRoom) return;
+
+  const baseTileX = homeRoom.centerX;
+  const baseTileY = homeRoom.centerY;
+  const candidateOffsets = [
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+    { x: 1, y: 1 },
+    { x: -1, y: 1 },
+    { x: 1, y: -1 },
+    { x: -1, y: -1 },
+    { x: 2, y: 0 },
+    { x: -2, y: 0 },
+    { x: 0, y: 2 },
+    { x: 0, y: -2 },
+    { x: 2, y: 1 },
+    { x: -2, y: 1 },
+    { x: 2, y: -1 },
+    { x: -2, y: -1 },
+  ];
+
+  const isInsideHome = (tileX, tileY) =>
+    tileX >= homeRoom.x &&
+    tileX < homeRoom.x + homeRoom.width &&
+    tileY >= homeRoom.y &&
+    tileY < homeRoom.y + homeRoom.height;
+
+  const radius = template.radius ?? 14;
+  let spawnX = null;
+  let spawnY = null;
+
+  for (let i = 0; i < candidateOffsets.length; i += 1) {
+    const offset = candidateOffsets[i];
+    const tileX = baseTileX + offset.x;
+    const tileY = baseTileY + offset.y;
+    if (!isInsideHome(tileX, tileY)) continue;
+    const worldX = tileX * CELL_SIZE + CELL_SIZE / 2;
+    const worldY = tileY * CELL_SIZE + CELL_SIZE / 2;
+    if (!isWalkable(worldX, worldY, radius)) continue;
+    if (Math.hypot(worldX - player.x, worldY - player.y) < radius + player.radius + 12) continue;
+    spawnX = worldX;
+    spawnY = worldY;
+    break;
+  }
+
+  if (spawnX === null || spawnY === null) {
+    spawnX = baseTileX * CELL_SIZE + CELL_SIZE / 2;
+    spawnY = baseTileY * CELL_SIZE + CELL_SIZE / 2;
+  }
+
+  addPreyFromTemplate(template, spawnX, spawnY, { companion: true });
+}
+
+function spawnHomeGlintmoth() {
+  if (preyList.length >= MAX_PREY) return;
+  const template = PREY_TYPES.find((prey) => prey.id === "glintmoth");
+  if (!template) return;
+  const homeRoom = dungeonRooms.find((room) => room.isHome);
+  if (!homeRoom) return;
+
+  const baseTileX = homeRoom.centerX - 1;
+  const baseTileY = homeRoom.centerY + 1;
+  const candidateOffsets = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+    { x: 1, y: 1 },
+    { x: -1, y: 1 },
+    { x: 1, y: -1 },
+    { x: -1, y: -1 },
+    { x: 2, y: 0 },
+    { x: -2, y: 0 },
+    { x: 0, y: 2 },
+    { x: 0, y: -2 },
+  ];
+
+  const isInsideHome = (tileX, tileY) =>
+    tileX >= homeRoom.x &&
+    tileX < homeRoom.x + homeRoom.width &&
+    tileY >= homeRoom.y &&
+    tileY < homeRoom.y + homeRoom.height;
+
+  const radius = template.radius ?? 14;
+  let spawnX = null;
+  let spawnY = null;
+
+  for (let i = 0; i < candidateOffsets.length; i += 1) {
+    const offset = candidateOffsets[i];
+    const tileX = baseTileX + offset.x;
+    const tileY = baseTileY + offset.y;
+    if (!isInsideHome(tileX, tileY)) continue;
+    const worldX = tileX * CELL_SIZE + CELL_SIZE / 2;
+    const worldY = tileY * CELL_SIZE + CELL_SIZE / 2;
+    if (!isWalkable(worldX, worldY, radius)) continue;
+    if (Math.hypot(worldX - player.x, worldY - player.y) < radius + player.radius + 12) continue;
+    spawnX = worldX;
+    spawnY = worldY;
+    break;
+  }
+
+  if (spawnX === null || spawnY === null) {
+    spawnX = baseTileX * CELL_SIZE + CELL_SIZE / 2;
+    spawnY = baseTileY * CELL_SIZE + CELL_SIZE / 2;
+  }
+
+  addPreyFromTemplate(template, spawnX, spawnY, { companion: true });
+}
+
+function spawnCompanionNearPlayer(variantId, options = {}) {
+  if (preyList.length >= MAX_PREY) return false;
+  const template = PREY_TYPES.find((prey) => prey.id === variantId);
+  if (!template) return false;
+  const radius = template.radius ?? 14;
+  const originX = options.originX ?? player.x;
+  const originY = options.originY ?? player.y;
+  const maxDistance = Math.max(COMPANION_MIN_SPAWN_DISTANCE, options.maxDistance ?? COMPANION_NEAR_PLAYER_RADIUS);
+  const minDistance = Math.max(radius + player.radius + 10, options.minDistance ?? COMPANION_MIN_SPAWN_DISTANCE);
+
+  for (let attempt = 0; attempt < 28; attempt += 1) {
+    const distance = minDistance + Math.random() * Math.max(0, maxDistance - minDistance);
+    const angle = Math.random() * Math.PI * 2;
+    const spawnX = originX + Math.cos(angle) * distance;
+    const spawnY = originY + Math.sin(angle) * distance;
+    if (!isWalkable(spawnX, spawnY, radius)) continue;
+    if (Math.hypot(spawnX - player.x, spawnY - player.y) < radius + player.radius + 8) continue;
+    const tileX = Math.floor(spawnX / CELL_SIZE);
+    const tileY = Math.floor(spawnY / CELL_SIZE);
+    if (getTile(tileX, tileY) === 0) continue;
+    addPreyFromTemplate(template, spawnX, spawnY, { companion: true });
+    return true;
+  }
+  return false;
+}
+
+function countCompanionVariant(variantId) {
+  let count = 0;
+  preyList.forEach((prey) => {
+    if (prey.variant === variantId) count += 1;
+  });
+  return count;
+}
+
+function spawnNextCompanion() {
+  if (preyList.length >= MAX_PREY) return false;
+  const available = COMPANION_VARIANT_LIST.filter(
+    (variant) => countCompanionVariant(variant) < (COMPANION_VARIANT_LIMITS[variant] ?? 1),
+  );
+  if (available.length === 0) return false;
+
+  let selected = available[0];
+  let bestCount = countCompanionVariant(selected);
+  for (let i = 1; i < available.length; i += 1) {
+    const variant = available[i];
+    const variantCount = countCompanionVariant(variant);
+    if (variantCount < bestCount) {
+      bestCount = variantCount;
+      selected = variant;
+    }
+  }
+  const success = spawnCompanionNearPlayer(selected);
+  if (!success && available.length > 1) {
+    return spawnCompanionNearPlayer(available[Math.floor(Math.random() * available.length)]);
+  }
+  return success;
+}
+
 function scheduleMeatDrop(enemy, color, guaranteed = false, options = {}) {
-  const willDrop = guaranteed || Math.random() < MEAT_DROP_PROBABILITY;
-  if (!willDrop) return;
   createMeatDrop(enemy.x, enemy.y, color || MEAT_COLOR, options);
 }
 
@@ -820,6 +1234,56 @@ function createMeatDrop(baseX, baseY, color = MEAT_COLOR, options = {}) {
   });
 }
 
+function getSpellDefinition(spellId) {
+  return SPELL_TYPES.find((spell) => spell.id === spellId) || null;
+}
+
+function updateSpellSlotsUI() {
+  if (!spellSlotEls || spellSlotEls.length === 0) return;
+  spellSlotEls.forEach((slotEl, index) => {
+    const spellId = spellSlots[index];
+    const runeEl = slotEl.querySelector(".spell-slot__rune");
+    slotEl.classList.toggle("spell-slot--filled", Boolean(spellId));
+    slotEl.classList.toggle("spell-slot--empty", !spellId);
+    if (spellId) {
+      const spell = getSpellDefinition(spellId);
+      slotEl.dataset.spell = spellId;
+      slotEl.setAttribute(
+        "aria-label",
+        `Spell slot ${index + 1}: ${spell ? spell.label : "Ready"}`
+      );
+      slotEl.style.color = spell && spell.color ? spell.color : "#f9d64c";
+      if (runeEl) {
+        runeEl.innerHTML = SPELL_SLOT_RUNES[spellId] || "";
+      }
+    } else {
+      slotEl.dataset.spell = "";
+      slotEl.setAttribute("aria-label", `Spell slot ${index + 1}: Empty`);
+      slotEl.style.removeProperty("color");
+      if (runeEl) {
+        runeEl.innerHTML = "";
+      }
+    }
+  });
+}
+
+function addSpellToSlots(spellId) {
+  for (let i = 0; i < spellSlots.length; i += 1) {
+    if (spellSlots[i] === null) {
+      spellSlots[i] = spellId;
+      updateSpellSlotsUI();
+      return i;
+    }
+  }
+  return -1;
+}
+
+function clearSpellSlot(index) {
+  if (index < 0 || index >= spellSlots.length) return;
+  spellSlots[index] = null;
+  updateSpellSlotsUI();
+}
+
 function updateHUD() {
   const currentHealth = Math.max(Math.round(player.health), 0);
   const maxHealth = Math.round(player.maxHealth);
@@ -831,6 +1295,7 @@ function updateHUD() {
   const minutes = Math.floor(elapsed / 60).toString().padStart(2, "0");
   const seconds = (elapsed % 60).toString().padStart(2, "0");
   timerEl.textContent = `${minutes}:${seconds}`;
+  updateSpellSlotsUI();
 }
 
 function showAchievement(text) {
@@ -930,7 +1395,35 @@ function handleGunUpgrade() {
 }
 
 function update(delta) {
+  if (!initialStart) return;
   if (!state.running || state.paused) return;
+  if (player.terrashieldTimer > 0) {
+    player.terrashieldTimer = Math.max(0, player.terrashieldTimer - delta);
+    if (player.terrashieldTimer === 0 && player.terrashieldBurstPending) {
+      triggerTerrashieldBurst();
+    }
+  } else if (player.terrashieldBurstPending) {
+    triggerTerrashieldBurst();
+  }
+  if (player.terrashieldArmorTimer > 0) {
+    player.terrashieldArmorTimer = Math.max(0, player.terrashieldArmorTimer - delta);
+  }
+  const currentCompanionBonus = companionSpeedBonus;
+  if (player.speedBoostTimer > 0) {
+    player.speedBoostTimer = Math.max(0, player.speedBoostTimer - delta);
+    player.speed = player.baseSpeed * SPEED_SPELL_MULTIPLIER + currentCompanionBonus;
+    hasteTrailAccumulator += delta;
+    if (hasteTrailAccumulator >= 160) {
+      spawnParticles(player.x, player.y, "#b0ff6a", 80, 6);
+      hasteTrailAccumulator = 0;
+    }
+    if (player.speedBoostTimer <= 0) {
+      player.speed = player.baseSpeed + currentCompanionBonus;
+    }
+  } else {
+    player.speed = player.baseSpeed + currentCompanionBonus;
+    hasteTrailAccumulator = 0;
+  }
   const deltaSeconds = delta / 1000;
   player.shootingTimer = Math.max(0, player.shootingTimer - delta);
 
@@ -971,6 +1464,11 @@ function update(delta) {
   if (joystickState.active) {
     moveX += joystickState.dx;
     moveY += joystickState.dy;
+  }
+
+  if (player.terrashieldTimer > 0) {
+    moveX = 0;
+    moveY = 0;
   }
 
   let movedPlayer = false;
@@ -1023,6 +1521,12 @@ function update(delta) {
     createHealthDrop();
   }
 
+  spellAccumulator += delta;
+  if (spellAccumulator >= SPELL_RESPAWN) {
+    spellAccumulator -= SPELL_RESPAWN;
+    createSpellDrop();
+  }
+
   titanAccumulator += delta;
   if (titanAccumulator >= TITAN_SPAWN_INTERVAL) {
     titanAccumulator -= TITAN_SPAWN_INTERVAL;
@@ -1037,6 +1541,13 @@ function update(delta) {
     }
   }
 
+  companionSpawnAccumulator -= delta;
+  if (companionSpawnAccumulator <= 0) {
+    const spawned = spawnNextCompanion();
+    const intervalMultiplier = spawned ? 0.7 + Math.random() * 0.6 : 0.5;
+    companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL * intervalMultiplier;
+  }
+
   updatePrey(delta);
 
   enemies.forEach((enemy) => {
@@ -1047,17 +1558,36 @@ function update(delta) {
     const hasLunge = enemy.lungeRange !== undefined && enemy.lungeCooldownBase;
     const nearestPreyInfo = getNearestPrey(enemy.x, enemy.y);
     const healthRatio = enemy.health / enemy.maxHealth;
+    const variantAggro =
+      ALWAYS_AGGRESSIVE_VARIANTS.has(enemy.variant) || enemyAggroFlags[enemy.variant] || isTitan;
+    const provoked = enemy.health < enemy.maxHealth;
+    const shouldAggroPlayer = variantAggro || provoked;
 
-    let targetType = "player";
-    let targetEntity = player;
-    let targetDx = dxPlayer;
-    let targetDy = dyPlayer;
-    let distance = distanceToPlayer;
-    let hasTargetSight = hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
+    if (enemy.attackTimer === undefined) enemy.attackTimer = 0;
+    enemy.attackTimer = Math.max(0, (enemy.attackTimer || 0) - delta);
+
+    let targetType = null;
+    let targetEntity = null;
+    let targetDx = 0;
+    let targetDy = 0;
+    let distance = Infinity;
+    let hasTargetSight = false;
+
+    if (shouldAggroPlayer) {
+      targetType = "player";
+      targetEntity = player;
+      targetDx = dxPlayer;
+      targetDy = dyPlayer;
+      distance = distanceToPlayer;
+      hasTargetSight = hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
+    }
 
     if (nearestPreyInfo) {
       const preyDistance = nearestPreyInfo.distance;
-      if (healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD || preyDistance <= ENEMY_PREY_OPPORTUNITY_RANGE) {
+      if (
+        healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD ||
+        preyDistance <= ENEMY_PREY_OPPORTUNITY_RANGE
+      ) {
         targetType = "prey";
         targetEntity = nearestPreyInfo.prey;
         targetDx = targetEntity.x - enemy.x;
@@ -1067,6 +1597,29 @@ function update(delta) {
       }
     }
 
+    if (!targetEntity) {
+      if (enemy.behaviour === "sentry") {
+        if (!enemy.targetX || Math.hypot(enemy.targetX - enemy.x, enemy.targetY - enemy.y) < 12) {
+          assignPatrolTarget(enemy);
+        }
+        targetType = "patrol";
+        targetEntity = { x: enemy.targetX, y: enemy.targetY };
+        targetDx = enemy.targetX - enemy.x;
+        targetDy = enemy.targetY - enemy.y;
+        distance = Math.hypot(targetDx, targetDy) || 1;
+        hasTargetSight = true;
+      } else {
+        if (!enemy.wanderTarget || Math.hypot(enemy.wanderTarget.x - enemy.x, enemy.wanderTarget.y - enemy.y) < 12) {
+          assignWanderTarget(enemy);
+        }
+        targetType = "wander";
+        targetEntity = enemy.wanderTarget;
+        targetDx = targetEntity.x - enemy.x;
+        targetDy = targetEntity.y - enemy.y;
+        distance = Math.hypot(targetDx, targetDy) || 1;
+        hasTargetSight = true;
+      }
+    }
     if (enemy.spawnTimer) {
       enemy.spawnTimer = Math.max(0, enemy.spawnTimer - delta);
     }
@@ -1087,6 +1640,7 @@ function update(delta) {
         const len = distance || 1;
         enemy.lungeDirX = targetDx / len;
         enemy.lungeDirY = targetDy / len;
+        enemy.attackTimer = Math.max(enemy.attackTimer || 0, (enemy.lungeDuration || 260) + 150);
         spawnParticles(
           enemy.x,
           enemy.y,
@@ -1097,21 +1651,34 @@ function update(delta) {
       }
     }
 
+    if (enemy.dashCooldownBase !== undefined) {
+      enemy.dashCooldownTimer = Math.max(0, (enemy.dashCooldownTimer || 0) - delta);
+      if (enemy.isDashing) {
+        enemy.dashTimer = Math.max(0, (enemy.dashTimer || 0) - delta);
+        if (enemy.dashTimer === 0) enemy.isDashing = false;
+      }
+      const canDash = !enemy.isDashing && (!enemy.isLunging || !hasLunge) && enemy.dashCooldownTimer === 0;
+      if (canDash && targetEntity && hasTargetSight && distance < enemy.dashRange && distance > enemy.radius + 12) {
+        enemy.isDashing = true;
+        enemy.dashTimer = enemy.dashDuration || 220;
+        const len = distance || 1;
+        enemy.dashDirX = targetDx / len;
+        enemy.dashDirY = targetDy / len;
+        enemy.dashCooldownTimer = enemy.dashCooldownBase;
+        enemy.attackTimer = Math.max(enemy.attackTimer || 0, (enemy.dashDuration || 220) + 120);
+        spawnParticles(enemy.x, enemy.y, enemy.color || "#f79d2a", 120, 14);
+      }
+    }
+
     if (isTitan) {
       if (enemy.walkCycle === undefined) enemy.walkCycle = 0;
       if (enemy.glowPhase === undefined) enemy.glowPhase = Math.random() * Math.PI * 2;
     }
 
     let moved = false;
-    if (
-      enemy.behaviour === "chaser" ||
-      enemy.behaviour === "brute" ||
-      enemy.behaviour === "titan" ||
-      enemy.behaviour === "sentry" ||
-      enemy.state === "chase"
-    ) {
-      let dirX = targetDx / distance;
-      let dirY = targetDy / distance;
+    if (targetEntity) {
+      let dirX = targetDx / (distance || 1);
+      let dirY = targetDy / (distance || 1);
       let moveSpeed = enemy.speed;
       let shrink = enemy.collisionShrink ?? (isTitan ? 0.6 : 0.65);
       if (enemy.isLunging) {
@@ -1120,6 +1687,11 @@ function update(delta) {
           dirX = enemy.lungeDirX || dirX;
           dirY = enemy.lungeDirY || dirY;
         }
+      } else if (enemy.isDashing) {
+        moveSpeed = enemy.speed * (enemy.dashSpeedMultiplier || 1.8);
+        dirX = enemy.dashDirX || dirX;
+        dirY = enemy.dashDirY || dirY;
+        shrink *= 0.92;
       } else if (
         hasLunge &&
         enemy.hasteThreshold !== undefined &&
@@ -1127,31 +1699,25 @@ function update(delta) {
         enemy.lungeCooldownTimer < enemy.lungeCooldownBase * enemy.hasteThreshold
       ) {
         moveSpeed = enemy.speed * enemy.hasteMultiplier;
+      } else if (!shouldAggroPlayer && targetType !== "prey") {
+        moveSpeed = enemy.speed * 0.75;
       }
       moved = stepEntity(enemy, dirX, dirY, moveSpeed, deltaSeconds, shrink);
 
       if (
         enemy.behaviour === "sentry" &&
-        (!hasTargetSight ||
-          distance > SENTRY_LOSE_RANGE * (targetType === "player" ? 1 : 0.85))
+        targetType === "player" &&
+        (!hasTargetSight || distance > SENTRY_LOSE_RANGE)
       ) {
         enemy.state = "patrol";
         assignPatrolTarget(enemy);
       }
-    } else {
-      const seesPlayer =
-        distanceToPlayer <= SENTRY_VISION_RANGE && hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
-      if (seesPlayer) {
-        enemy.state = "chase";
-      } else {
-        if (!enemy.targetX || Math.hypot(enemy.targetX - enemy.x, enemy.targetY - enemy.y) < 12) {
-          assignPatrolTarget(enemy);
-        }
-        const tdx = enemy.targetX - enemy.x;
-        const tdy = enemy.targetY - enemy.y;
-        const len = Math.hypot(tdx, tdy) || 1;
-        moved = stepEntity(enemy, tdx / len, tdy / len, enemy.speed * 0.75, deltaSeconds, 0.65);
-      }
+    }
+
+    if (!shouldAggroPlayer && enemy.behaviour !== "sentry") {
+      enemy.state = "wander";
+    } else if (shouldAggroPlayer && enemy.behaviour !== "sentry") {
+      enemy.state = "hunt";
     }
 
     if (!moved) {
@@ -1166,12 +1732,10 @@ function update(delta) {
       enemy.stuckTimer = Math.max(0, enemy.stuckTimer - delta * 0.5);
     }
 
-    if (isTitan) {
-      if (moved) {
-        enemy.walkCycle = ((enemy.walkCycle || 0) + delta) % 1800;
-      } else {
-        enemy.walkCycle = Math.max(0, (enemy.walkCycle || 0) - delta * 0.6);
-      }
+    if (moved) {
+      enemy.walkCycle = ((enemy.walkCycle || 0) + delta) % 1800;
+    } else {
+      enemy.walkCycle = Math.max(0, (enemy.walkCycle || 0) - delta * 0.6);
     }
 
     if (Math.hypot(enemy.x - enemy.prevX, enemy.y - enemy.prevY) > STUCK_DISTANCE) {
@@ -1183,9 +1747,19 @@ function update(delta) {
     attemptConsumePrey(enemy);
 
     enemy.damageCooldown = Math.max(0, enemy.damageCooldown - delta);
-    if (distanceToPlayer < enemy.radius + player.radius + 4 && enemy.damageCooldown === 0) {
-      player.health -= enemy.damage;
+    if (
+      distanceToPlayer < enemy.radius + player.radius + 4 &&
+      enemy.damageCooldown === 0 &&
+      (shouldAggroPlayer || enemy.behaviour === "titan")
+    ) {
+      let incomingDamage = enemy.damage;
+      if (player.terrashieldArmorTimer > 0) {
+        incomingDamage = Math.max(1, Math.ceil(incomingDamage * (1 - TERRASHIELD_ARMOR_REDUCTION)));
+      }
+      player.health -= incomingDamage;
+      spawnDamageNumber(player.x, player.y - player.radius * 1.4, incomingDamage, "player");
       enemy.damageCooldown = 700;
+      enemy.attackTimer = Math.max(enemy.attackTimer || 0, 260);
       spawnParticles(player.x, player.y, "#f45d5d");
       if (player.health <= 0) gameOver();
     }
@@ -1194,7 +1768,8 @@ function update(delta) {
   for (let i = enemies.length - 1; i >= 0; i -= 1) {
     const enemy = enemies[i];
     if (enemy.health <= 0) {
-      spawnParticles(enemy.x, enemy.y, "#f79d2a");
+      spawnParticles(enemy.x, enemy.y, enemy.color || "#f79d2a");
+      enemyAggroFlags[enemy.variant] = true;
       scheduleMeatDrop(enemy, enemy.color || MEAT_COLOR, enemy.behaviour === "titan");
       enemies.splice(i, 1);
       state.kills += 1;
@@ -1252,6 +1827,31 @@ function update(delta) {
     }
   }
 
+  for (let i = spellDrops.length - 1; i >= 0; i -= 1) {
+    const drop = spellDrops[i];
+    drop.lifetime -= delta;
+    drop.bobPhase = (drop.bobPhase || 0) + delta * PICKUP_BOB_SPEED;
+    if (drop.bobPhase > Math.PI * 2) drop.bobPhase -= Math.PI * 2;
+    drop.bobOffset = Math.sin(drop.bobPhase) * PICKUP_BOB_AMPLITUDE;
+    if (drop.lifetime <= 0) {
+      spellUsedPositions.delete(drop.key);
+      spellDrops.splice(i, 1);
+      continue;
+    }
+    const distance = Math.hypot(drop.x - player.x, drop.y - player.y);
+    if (distance < drop.radius + player.radius) {
+      const addedSlot = addSpellToSlots(drop.spellId);
+      const spellDef = getSpellDefinition(drop.spellId);
+      spellUsedPositions.delete(drop.key);
+      spellDrops.splice(i, 1);
+      if (addedSlot !== -1 && spellDef) {
+        const sparkColor = spellDef.color || "#f9d64c";
+        spawnParticles(drop.x, drop.y, sparkColor, 220, 20);
+        showAchievement(`Spell prepped: ${spellDef.label}`);
+      }
+    }
+  }
+
   for (let i = meatDrops.length - 1; i >= 0; i -= 1) {
     const drop = meatDrops[i];
     drop.lifetime -= delta;
@@ -1283,11 +1883,36 @@ function update(delta) {
     p.y += p.vy * deltaSeconds;
   }
 
+  for (let i = spellEffects.length - 1; i >= 0; i -= 1) {
+    const effect = spellEffects[i];
+    effect.elapsed = (effect.elapsed || 0) + delta;
+    if (effect.duration) {
+      effect.progress = Math.min(effect.elapsed / effect.duration, 1);
+      if (effect.elapsed >= effect.duration) {
+        spellEffects.splice(i, 1);
+      }
+    }
+  }
+
+  for (let i = damageNumbers.length - 1; i >= 0; i -= 1) {
+    const dmg = damageNumbers[i];
+    dmg.life -= delta;
+    if (dmg.life <= 0) {
+      damageNumbers.splice(i, 1);
+      continue;
+    }
+    const t = 1 - dmg.life / dmg.maxLife;
+    dmg.y -= delta * (0.035 + 0.015 * t);
+    dmg.x += dmg.drift * delta;
+  }
+
   updateHUD();
 }
 
 function updatePrey(delta) {
   const deltaSeconds = delta / 1000;
+  let pendingSpeedBonus = 0;
+  let echoSpriteCount = 0;
   preyList.forEach((prey) => {
     prey.animTimer = (prey.animTimer + delta) % 1000;
     if (prey.spawnTimer) {
@@ -1296,7 +1921,8 @@ function updatePrey(delta) {
     let avoidX = 0;
     let avoidY = 0;
     const playerDist = Math.hypot(player.x - prey.x, player.y - prey.y);
-    if (playerDist < PREY_FLEE_RANGE) {
+    const isCompanionVariant = COMPANION_VARIANTS.has(prey.variant);
+    if (!isCompanionVariant && playerDist < PREY_FLEE_RANGE) {
       const inv = 1 / Math.max(playerDist, 1);
       avoidX += (prey.x - player.x) * inv;
       avoidY += (prey.y - player.y) * inv;
@@ -1350,32 +1976,153 @@ function updatePrey(delta) {
       prey.targetX = null;
       prey.targetY = null;
     }
-    if (prey.state === "idle") {
-      prey.idleTimer -= delta;
-      if (prey.idleTimer <= 0) {
-        setPreyPatrolTarget(prey);
-        prey.state = "patrol";
+
+    let handledByCompanion = false;
+    if (isCompanionVariant) {
+      handledByCompanion = updateCompanionBehaviour(prey, deltaSeconds, playerDist);
+    }
+
+    if (!handledByCompanion) {
+      if (prey.state === "idle") {
+        prey.idleTimer -= delta;
+        if (prey.idleTimer <= 0) {
+          setPreyPatrolTarget(prey);
+          prey.state = "patrol";
+        }
+      } else if (prey.state === "patrol") {
+        if (!prey.targetX || !prey.targetY) {
+          setPreyPatrolTarget(prey);
+        }
+        const dx = prey.targetX - prey.x;
+        const dy = prey.targetY - prey.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < 12) {
+          prey.state = "idle";
+          prey.idleTimer = PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN);
+          prey.targetX = null;
+          prey.targetY = null;
+        } else {
+          stepEntity(prey, dx / dist, dy / dist, prey.speed * 0.8, deltaSeconds, 0.62);
+        }
       }
-    } else if (prey.state === "patrol") {
-      if (!prey.targetX || !prey.targetY) {
-        setPreyPatrolTarget(prey);
-      }
-      const dx = prey.targetX - prey.x;
-      const dy = prey.targetY - prey.y;
-      const dist = Math.hypot(dx, dy) || 1;
-      if (dist < 12) {
-        prey.state = "idle";
-        prey.idleTimer = PREY_IDLE_MIN + Math.random() * (PREY_IDLE_MAX - PREY_IDLE_MIN);
-        prey.targetX = null;
-        prey.targetY = null;
+    }
+
+    if (prey.variant === "lifebloom") {
+      if (playerDist <= LIFEBLOOM_HEAL_RANGE && player.health > 0 && player.health < player.maxHealth) {
+        prey.healTimer += delta;
+        while (prey.healTimer >= 1000) {
+          prey.healTimer -= 1000;
+          player.health = Math.min(player.maxHealth, player.health + 1);
+          spawnHealNumber(player.x, player.y - player.radius * 1.5, 1);
+          updateHUD();
+        }
       } else {
-        stepEntity(prey, dx / dist, dy / dist, prey.speed * 0.8, deltaSeconds, 0.62);
+        prey.healTimer = Math.max(0, prey.healTimer - delta * 0.5);
+      }
+    } else if (prey.variant === "glintmoth" && prey.bonded) {
+      pendingSpeedBonus += COMPANION_SPEED_BONUS;
+    } else if (prey.variant === "echosprite" && prey.bonded) {
+      echoSpriteCount += 1;
+      prey.effectTimer = (prey.effectTimer || 0) + delta;
+      if (prey.effectTimer >= 420) {
+        spawnParticles(prey.x, prey.y, "#9ec9ff", 100, 12);
+        prey.effectTimer = 0;
       }
     }
   });
+  companionSpeedBonus = pendingSpeedBonus;
+  if (echoSpriteCount > 0) {
+    companionEchoAccumulator += delta * echoSpriteCount;
+    const now = performance.now();
+    while (companionEchoAccumulator >= ECHOSPRITE_MANA_INTERVAL) {
+      companionEchoAccumulator -= ECHOSPRITE_MANA_INTERVAL;
+      if (player.mana < player.maxMana) {
+        player.mana = Math.min(player.maxMana, player.mana + 1);
+        spawnManaNumber(player.x, player.y - player.radius * 1.6, 1);
+        updateHUD();
+      } else {
+        player.lastAttack = Math.max(
+          player.lastAttack - player.attackCooldown * ECHOSPRITE_COOLDOWN_REDUCTION,
+          now - player.attackCooldown,
+        );
+        spawnParticles(player.x, player.y, "#9ec9ff", 140, 14);
+      }
+    }
+  } else {
+    companionEchoAccumulator = Math.max(0, companionEchoAccumulator - delta * 0.5);
+  }
+}
+
+function findCompanionOrbitTarget(prey, angle, desiredDistance) {
+  const minDistance = Math.max(prey.radius + player.radius + 10, desiredDistance * 0.55);
+  const maxDistance = Math.max(minDistance, desiredDistance);
+  const stepSize = CELL_SIZE * 0.35;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const dist = Math.max(minDistance, maxDistance - attempt * stepSize);
+    const targetX = player.x + Math.cos(angle) * dist;
+    const targetY = player.y + Math.sin(angle) * dist;
+    if (isWalkable(targetX, targetY, prey.radius, 0.7)) {
+      return { x: targetX, y: targetY };
+    }
+  }
+  const fallbackDist = minDistance;
+  const fallbackX = player.x + Math.cos(angle) * fallbackDist;
+  const fallbackY = player.y + Math.sin(angle) * fallbackDist;
+  if (isWalkable(fallbackX, fallbackY, prey.radius, 0.7)) {
+    return { x: fallbackX, y: fallbackY };
+  }
+  return { x: player.x, y: player.y };
+}
+
+function updateCompanionBehaviour(prey, deltaSeconds, playerDist) {
+  if (!prey.companion) return false;
+  const isLifebloom = prey.variant === "lifebloom";
+  const bondRange = isLifebloom ? LIFEBLOOM_HEAL_RANGE * 1.1 : COMPANION_BOND_DISTANCE;
+  if (!prey.bonded && playerDist <= bondRange) {
+    prey.bonded = true;
+    prey.bondAngle = Math.random() * Math.PI * 2;
+    prey.bondSpin = (Math.random() > 0.5 ? 1 : -1) * (0.12 + Math.random() * 0.18);
+    prey.followTargetX = prey.x;
+    prey.followTargetY = prey.y;
+    spawnParticles(prey.x, prey.y, "#ffe070", 120, 14);
+  }
+  if (!prey.bonded) return false;
+
+  const followDistance = isLifebloom ? LIFEBLOOM_FOLLOW_DISTANCE : COMPANION_FOLLOW_DISTANCE;
+  const angleDrift = (prey.bondSpin || 0) * deltaSeconds;
+  prey.bondAngle = (prey.bondAngle + angleDrift) % (Math.PI * 2);
+  const { x: desiredX, y: desiredY } = findCompanionOrbitTarget(prey, prey.bondAngle, followDistance);
+
+  const smoothFactor = Math.min(1, deltaSeconds * 5.5);
+  if (prey.followTargetX === undefined) {
+    prey.followTargetX = prey.x;
+    prey.followTargetY = prey.y;
+  }
+  prey.followTargetX += (desiredX - prey.followTargetX) * smoothFactor;
+  prey.followTargetY += (desiredY - prey.followTargetY) * smoothFactor;
+
+  const dx = prey.followTargetX - prey.x;
+  const dy = prey.followTargetY - prey.y;
+  const dist = Math.hypot(dx, dy);
+  const followSpeed = Math.max(prey.speed * COMPANION_FOLLOW_SPEED_MULT, player.speed + 40);
+  if (dist > 0.4) {
+    const denom = Math.max(deltaSeconds, 0.001);
+    const cappedSpeed = Math.min(followSpeed, (dist / denom) * 0.92);
+    const moved = stepEntity(prey, dx / (dist || 1), dy / (dist || 1), cappedSpeed, deltaSeconds, 0.62);
+    if (!moved) {
+      prey.followTargetX = prey.x;
+      prey.followTargetY = prey.y;
+    }
+  }
+  prey.state = "follow";
+  prey.idleTimer = PREY_IDLE_MIN;
+  prey.targetX = prey.followTargetX;
+  prey.targetY = prey.followTargetY;
+  return true;
 }
 
 function attack() {
+  if (!initialStart) return;
   if (state.paused || !state.running) return;
   const now = performance.now();
   if (now - player.lastAttack < player.attackCooldown) return;
@@ -1386,10 +2133,18 @@ function attack() {
   spawnParticles(player.x, player.y, "#f9d64c", 160, 18);
   enemies.forEach((enemy) => {
     const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-    if (distance <= player.attackRange) enemy.health -= player.damage;
+    if (distance <= player.attackRange) {
+      const prevHealth = enemy.health;
+      enemy.health -= player.damage;
+      const dealt = Math.min(player.damage, prevHealth);
+      if (dealt > 0) {
+        spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, dealt, "enemy");
+      }
+    }
   });
   for (let i = preyList.length - 1; i >= 0; i -= 1) {
     const prey = preyList[i];
+    if (prey.bonded) continue;
     const distance = Math.hypot(prey.x - player.x, prey.y - player.y);
     if (distance <= player.attackRange + prey.radius) {
       prey.health -= player.damage;
@@ -1401,6 +2156,160 @@ function attack() {
     }
   }
   updateHUD();
+}
+
+function useSpell(slotIndex) {
+  if (!initialStart) return;
+  if (state.paused || !state.running) return;
+  if (slotIndex < 0 || slotIndex >= spellSlots.length) return;
+  const spellId = spellSlots[slotIndex];
+  if (!spellId) return;
+  clearSpellSlot(slotIndex);
+  switch (spellId) {
+    case "blast":
+      castBlastSpell();
+      break;
+    case "heal":
+      castHealSpell();
+      break;
+    case "haste":
+      castHasteSpell();
+      break;
+    case "terrashield":
+      castTerrashieldSpell();
+      break;
+    default:
+      break;
+  }
+}
+
+function removeSpellEffectsByType(type) {
+  for (let i = spellEffects.length - 1; i >= 0; i -= 1) {
+    if (spellEffects[i].type === type) {
+      spellEffects.splice(i, 1);
+    }
+  }
+}
+
+function castBlastSpell() {
+  const range = player.attackRange * SPELL_BLAST_RANGE_MULTIPLIER;
+  const damage = player.damage * SPELL_BLAST_DAMAGE_MULTIPLIER;
+  let hits = 0;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (distance <= range) {
+      const prevHealth = enemy.health;
+      enemy.health -= damage;
+      enemy.damageCooldown = 0;
+      const dealt = Math.min(damage, prevHealth);
+      if (dealt > 0) {
+        spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, dealt, "enemy");
+      }
+      hits += 1;
+    }
+  });
+  for (let i = preyList.length - 1; i >= 0; i -= 1) {
+    const prey = preyList[i];
+    const distance = Math.hypot(prey.x - player.x, prey.y - player.y);
+    if (distance <= range + prey.radius) {
+      prey.health -= damage;
+      if (prey.health <= 0) {
+        spawnParticles(prey.x, prey.y, prey.color || "#7befa2", 160, 16);
+        scheduleMeatDrop(prey, PREY_MEAT_COLOR, false, { restore: PREY_MEAT_RESTORE, mutates: false });
+        preyList.splice(i, 1);
+      } else {
+        prey.state = "flee";
+      }
+    }
+  }
+  spawnParticles(player.x, player.y, "#f9d64c", 360, 32);
+  spellEffects.push({
+    type: "blast",
+    x: player.x,
+    y: player.y,
+    maxRadius: range * 1.1,
+    elapsed: 0,
+    duration: 620,
+  });
+  if (hits > 0) {
+    showAchievement(`Arc blast scorched ${hits} foe${hits === 1 ? "" : "s"}!`);
+  }
+}
+
+function castHealSpell() {
+  player.health = player.maxHealth;
+  spawnParticles(player.x, player.y, "#8ef9ff", 280, 26);
+  spellEffects.push({
+    type: "heal",
+    followPlayer: true,
+    elapsed: 0,
+    duration: 820,
+  });
+  showAchievement("Sanctify surges through you!");
+  updateHUD();
+}
+
+function castHasteSpell() {
+  player.speedBoostTimer = SPEED_SPELL_DURATION;
+  player.speed = player.baseSpeed * SPEED_SPELL_MULTIPLIER;
+  spawnParticles(player.x, player.y, "#b0ff6a", 220, 20);
+  removeSpellEffectsByType("haste");
+  spellEffects.push({
+    type: "haste",
+    followPlayer: true,
+    elapsed: 0,
+    duration: SPEED_SPELL_DURATION,
+  });
+  showAchievement("Swiftstep spell ignited!");
+}
+
+function castTerrashieldSpell() {
+  player.terrashieldTimer = TERRASHIELD_ROOT_DURATION;
+  player.terrashieldBurstPending = true;
+  spawnParticles(player.x, player.y, "#9cff74", 240, 18);
+  removeSpellEffectsByType("terrashield");
+  spellEffects.push({
+    type: "terrashield",
+    followPlayer: true,
+    elapsed: 0,
+    duration: TERRASHIELD_ROOT_DURATION + TERRASHIELD_ARMOR_DURATION,
+    rootDuration: TERRASHIELD_ROOT_DURATION,
+  });
+  showAchievement("Terrashield raised! Brace yourself.");
+}
+
+function triggerTerrashieldBurst() {
+  player.terrashieldBurstPending = false;
+  const damage = Math.round(player.damage * TERRASHIELD_DAMAGE_MULTIPLIER);
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (distance <= TERRASHIELD_BURST_RADIUS + enemy.radius) {
+      const prevHealth = enemy.health;
+      enemy.health -= damage;
+      enemy.damageCooldown = 0;
+      const dealt = Math.min(damage, prevHealth);
+      if (dealt > 0) {
+        spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, dealt, "enemy");
+      }
+    }
+  });
+  for (let i = preyList.length - 1; i >= 0; i -= 1) {
+    const prey = preyList[i];
+    if (prey.bonded) continue;
+    const distance = Math.hypot(prey.x - player.x, prey.y - player.y);
+    if (distance <= TERRASHIELD_BURST_RADIUS + prey.radius) {
+      prey.health -= damage;
+      if (prey.health <= 0) {
+        spawnParticles(prey.x, prey.y, prey.color || "#7befa2", 140, 16);
+        scheduleMeatDrop(prey, PREY_MEAT_COLOR, false, { restore: PREY_MEAT_RESTORE, mutates: false });
+        preyList.splice(i, 1);
+      } else {
+        prey.state = "flee";
+      }
+    }
+  }
+  spawnParticles(player.x, player.y, "#8cff8a", 260, 24);
+  player.terrashieldArmorTimer = TERRASHIELD_ARMOR_DURATION;
 }
 
 function gameOver() {
@@ -1432,10 +2341,13 @@ function draw() {
   drawDecorations(cameraX, cameraY);
   drawMana(cameraX, cameraY);
   drawHealth(cameraX, cameraY);
+  drawSpells(cameraX, cameraY);
   drawMeat(cameraX, cameraY);
   drawPrey(cameraX, cameraY);
   drawEnemies(cameraX, cameraY);
   drawPlayer(cameraX, cameraY);
+  drawSpellEffects(cameraX, cameraY);
+  drawDamageNumbers(cameraX, cameraY);
   drawParticles(cameraX, cameraY);
   drawFog();
   if (isMobile) drawCanvasHUD();
@@ -1455,6 +2367,14 @@ function drawHealth(offsetX, offsetY) {
     const screenX = drop.x - offsetX;
     const screenY = drop.y - offsetY;
     drawPickupSprite(screenX, screenY, "health", drop.bobOffset || 0);
+  });
+}
+
+function drawSpells(offsetX, offsetY) {
+  spellDrops.forEach((drop) => {
+    const screenX = drop.x - offsetX;
+    const screenY = drop.y - offsetY;
+    drawSpellDropSprite(screenX, screenY, drop);
   });
 }
 
@@ -1535,6 +2455,178 @@ function drawPickupSprite(x, y, type, hoverOffset = 0) {
     ctx.fillRect(-1.8, -0.5, 3.6, 1.0);
   }
   ctx.restore();
+}
+
+function drawSpellDropSprite(x, y, drop) {
+  const hoverOffset = drop.bobOffset || 0;
+  const wobblePhase = (drop.bobPhase || 0) + animationTime * 0.003;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(PICKUP_SCALE, PICKUP_SCALE);
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath();
+  ctx.ellipse(0, 1.1, 2.9, 1.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x, y + hoverOffset);
+  ctx.scale(PICKUP_SCALE, PICKUP_SCALE);
+  ctx.rotate(Math.sin(wobblePhase) * 0.08);
+
+  // chunky spine/back cover
+  ctx.fillStyle = "#1c0e05";
+  ctx.fillRect(-3.9, -3.3, 1.4, 6.6);
+  ctx.fillStyle = "#2d180a";
+  ctx.fillRect(-3.5, -3.1, 1.0, 6.2);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.fillRect(-3.9, -3.3, 0.35, 6.6);
+
+  ctx.fillStyle = "#2e1c0e";
+  ctx.fillRect(-2.9, -3.1, 5.8, 6.2);
+  ctx.fillStyle = "#402712";
+  ctx.fillRect(-2.6, -2.8, 5.2, 5.6);
+  ctx.fillStyle = "#d9c9aa";
+  ctx.fillRect(-2.1, -2.2, 4.2, 4.6);
+  ctx.fillStyle = "#f4edd5";
+  ctx.fillRect(-2.1, -2.4, 4.2, 0.35);
+  ctx.fillRect(-2.1, 1.9, 4.2, 0.35);
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.fillRect(-2.1, 1.9, 4.2, 0.18);
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 0.2;
+  ctx.strokeRect(-2.6, -2.8, 5.2, 5.6);
+  ctx.fillStyle = "#7d4e28";
+  ctx.fillRect(-2.1, -0.2, 4.2, 0.6);
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.beginPath();
+  ctx.moveTo(-1.6, -2.2);
+  ctx.lineTo(1.6, -2.2);
+  ctx.lineTo(0.6, -1.2);
+  ctx.lineTo(-2.1, -1.2);
+  ctx.closePath();
+  ctx.fill();
+
+  const spellColor = drop.color || "#f9d64c";
+  const rgb = hexToRgb(spellColor);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.35)`;
+  ctx.beginPath();
+  ctx.ellipse(0, -0.2, 2.0, 2.2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = spellColor;
+  ctx.fillStyle = spellColor;
+  ctx.lineWidth = 0.32;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  renderSpellRune(drop.spellId);
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function renderSpellRune(spellId) {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  switch (spellId) {
+    case "blast":
+      ctx.lineWidth = 0.45;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i += 1) {
+        const angle = (Math.PI / 4) * i;
+        const innerR = 0.5;
+        const outerR = 1.7;
+        ctx.moveTo(Math.cos(angle) * innerR, Math.sin(angle) * innerR);
+        ctx.lineTo(Math.cos(angle) * outerR, Math.sin(angle) * outerR);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.65, 0, Math.PI * 2);
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fill();
+      break;
+    case "heal":
+      ctx.lineWidth = 0.42;
+      ctx.beginPath();
+      ctx.moveTo(0, -1.8);
+      ctx.lineTo(0, 1.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-1.4, -0.6);
+      ctx.quadraticCurveTo(0, -1.4, 1.4, -0.6);
+      ctx.moveTo(-1.45, 0.65);
+      ctx.quadraticCurveTo(0, 1.45, 1.45, 0.65);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.55, 0, Math.PI * 2);
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fill();
+      break;
+    case "haste":
+      ctx.lineWidth = 0.42;
+      ctx.beginPath();
+      ctx.moveTo(1.2, -1.2);
+      ctx.quadraticCurveTo(-0.8, -2.0, -1.6, -0.2);
+      ctx.quadraticCurveTo(-2.2, 1.3, -0.8, 2.0);
+      ctx.quadraticCurveTo(0.8, 2.6, 1.6, 1.2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-0.6, -0.4);
+      ctx.quadraticCurveTo(0.4, -0.1, 0.8, -0.9);
+      ctx.moveTo(-0.8, 0.6);
+      ctx.quadraticCurveTo(0.1, 0.8, 0.7, 0.3);
+      ctx.stroke();
+      break;
+    default:
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.0, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+  }
+}
+
+function spawnDamageNumber(x, y, amount, target = "enemy", options = {}) {
+  const { variant = "damage" } = options;
+  if (!amount || amount <= 0) return;
+  const clamped = Math.max(1, Math.round(amount));
+  let color;
+  let shadow;
+  let value;
+  if (variant === "heal") {
+    color = "rgba(120,255,160,0.95)";
+    shadow = "rgba(20,80,40,0.55)";
+    value = `+${clamped}`;
+  } else if (variant === "mana") {
+    color = "rgba(142,249,255,0.95)";
+    shadow = "rgba(26,94,118,0.55)";
+    value = `+${clamped}`;
+  } else {
+    color = target === "player" ? "rgba(255,90,90,0.95)" : "rgba(255,236,140,0.9)";
+    shadow = target === "player" ? "rgba(120,0,0,0.55)" : "rgba(80,60,0,0.45)";
+    value = `-${clamped}`;
+  }
+  damageNumbers.push({
+    x,
+    y,
+    drift: (Math.random() - 0.5) * 0.08,
+    value,
+    color,
+    shadow,
+    life: 520,
+    maxLife: 520,
+  });
+}
+
+function spawnHealNumber(x, y, amount = 1) {
+  spawnDamageNumber(x, y, amount, "player", { variant: "heal" });
+}
+
+function spawnManaNumber(x, y, amount = 1) {
+  spawnDamageNumber(x, y, amount, "player", { variant: "mana" });
 }
 
 function drawMeatSprite(x, y, drop) {
@@ -1631,267 +2723,834 @@ function drawDecorationSprite(x, y, decoration) {
   ctx.save();
   ctx.translate(x, y + wobble);
   ctx.scale(DECORATION_SCALE, DECORATION_SCALE);
+  if (decoration.rotation) ctx.rotate(decoration.rotation);
   ctx.globalAlpha = alpha;
 
+  const drawHomeBed = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#2e1d1a";
+    ctx.fillRect(-3.0, -1.6, 6.0, 3.2);
+    ctx.fillStyle = "#3c2724";
+    ctx.fillRect(-2.7, -1.3, 5.4, 2.6);
+    ctx.fillStyle = "#99b9ff";
+    ctx.fillRect(-2.4, -1.0, 1.9, 1.4);
+    ctx.fillStyle = "#4f65c6";
+    ctx.fillRect(-0.5, -1.0, 3.2, 2.2);
+    ctx.fillStyle = "#233275";
+    ctx.fillRect(-0.5, 0.6, 3.2, 0.6);
+    ctx.restore();
+  };
+
+  const drawHomePotionTable = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#412b24";
+    ctx.fillRect(-2.5, -1.0, 5.0, 2.2);
+    ctx.fillRect(-2.8, 1.0, 0.8, 2.2);
+    ctx.fillRect(2.0, 1.0, 0.8, 2.2);
+    ctx.fillStyle = "#d9b376";
+    ctx.fillRect(-2.3, -1.3, 4.6, 0.6);
+    ctx.fillStyle = "#7ad8ff";
+    ctx.beginPath();
+    ctx.ellipse(-1.3, -0.3, 0.6, 0.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#8e5cff";
+    ctx.beginPath();
+    ctx.ellipse(0.2, -0.4, 0.55, 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffd966";
+    ctx.beginPath();
+    ctx.ellipse(1.5, -0.5, 0.5, 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f2f2f2";
+    ctx.fillRect(-1.5, -1.6, 0.5, 0.6);
+    ctx.fillRect(0.0, -1.6, 0.45, 0.6);
+    ctx.fillRect(1.3, -1.6, 0.45, 0.6);
+    ctx.restore();
+  };
+
+  const drawHomeLounge = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#2a1b2d";
+    ctx.fillRect(-3.2, -1.2, 6.4, 2.8);
+    ctx.fillStyle = "#4a2f58";
+    ctx.fillRect(-3.0, -1.0, 6.0, 2.4);
+    ctx.fillStyle = "#613e75";
+    ctx.fillRect(-2.6, -0.6, 5.2, 1.6);
+    ctx.fillStyle = "#2e1c39";
+    ctx.fillRect(-3.0, 1.4, 0.8, 1.8);
+    ctx.fillRect(2.2, 1.4, 0.8, 1.8);
+    ctx.fillStyle = "#8550a9";
+    ctx.beginPath();
+    ctx.ellipse(0, -0.2, 2.0, 1.0, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawHomeRug = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#2b203e";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 3.4, 2.0, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8d66ff";
+    ctx.lineWidth = 0.3;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 2.6, 1.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#f0b45c";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 1.6, 0.95, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawHomeBooks = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#3a2416";
+    ctx.fillRect(-2.4, -2.2, 4.8, 4.4);
+    ctx.fillStyle = "#24160e";
+    ctx.fillRect(-2.6, -2.4, 5.2, 0.5);
+    ctx.fillRect(-2.6, 1.9, 5.2, 0.5);
+    ctx.fillStyle = "#d85f6a";
+    ctx.fillRect(-2.0, -1.6, 0.8, 3.0);
+    ctx.fillStyle = "#6fd0c8";
+    ctx.fillRect(-0.9, -1.2, 0.9, 2.6);
+    ctx.fillStyle = "#f3d26d";
+    ctx.fillRect(0.3, -0.8, 0.8, 2.2);
+    ctx.fillStyle = "#8b6cff";
+    ctx.fillRect(1.6, -1.4, 0.7, 2.8);
+    ctx.restore();
+  };
+
+  const drawHomeGrandRug = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#2b1e3a";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 4.8, 3.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(140,102,255,0.65)";
+    ctx.lineWidth = 0.35;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 3.8, 2.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,202,120,0.55)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 2.6, 1.8, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  const drawHomeRoundTable = (scale = 1, withCandles = true) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#3b2418";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 2.4, 1.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#5a351f";
+    ctx.beginPath();
+    ctx.ellipse(0, -0.08, 2.0, 1.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2b1a10";
+    ctx.fillRect(-0.4, 0.8, 0.8, 1.6);
+    ctx.fillRect(-1.4, 1.0, 0.5, 1.2);
+    ctx.fillRect(0.9, 1.0, 0.5, 1.2);
+    if (withCandles) {
+      ctx.fillStyle = "#f9e7b8";
+      ctx.fillRect(-0.4, -0.8, 0.3, 1.0);
+      ctx.fillRect(0.2, -0.9, 0.3, 1.2);
+      ctx.fillStyle = "#ffcd4f";
+      ctx.beginPath();
+      ctx.arc(-0.25, -1.0, 0.18, 0, Math.PI * 2);
+      ctx.arc(0.35, -1.1, 0.18, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
+
+  const drawHomeChair = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#2e1c10";
+    ctx.fillRect(-1.2, -1.6, 0.6, 3.2);
+    ctx.fillRect(0.6, -1.6, 0.6, 3.2);
+    ctx.fillStyle = "#6b3f25";
+    ctx.fillRect(-1.0, -1.2, 2.0, 1.2);
+    ctx.fillStyle = "#83553a";
+    ctx.fillRect(-0.9, 0, 1.8, 0.8);
+    ctx.fillStyle = "#3f2616";
+    ctx.fillRect(-1.0, 0.8, 2.0, 0.35);
+    ctx.restore();
+  };
+
+  const drawHomeLamp = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#3e2d1e";
+    ctx.fillRect(-0.4, -2.0, 0.8, 3.8);
+    ctx.fillStyle = "#b98c52";
+    ctx.fillRect(-0.6, -2.2, 1.2, 0.6);
+    const glow = ctx.createRadialGradient(0, -3.0, 0.2, 0, -3.0, 2.4);
+    glow.addColorStop(0, "rgba(255, 236, 160, 0.75)");
+    glow.addColorStop(1, "rgba(255, 236, 160, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.ellipse(0, -3.0, 2.0, 1.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffdd8a";
+    ctx.beginPath();
+    ctx.ellipse(0, -2.6, 1.4, 0.9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawHomeSpellTable = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#322034";
+    ctx.fillRect(-2.0, -0.8, 4.0, 1.4);
+    ctx.fillRect(-2.2, 0.6, 0.6, 1.6);
+    ctx.fillRect(1.6, 0.6, 0.6, 1.6);
+    ctx.fillStyle = "#4a2d5b";
+    ctx.fillRect(-1.8, -1.1, 3.6, 0.5);
+    ctx.fillStyle = "#9f6cff";
+    ctx.beginPath();
+    ctx.arc(-0.8, -0.2, 0.5, 0, Math.PI * 2);
+    ctx.arc(0.8, -0.2, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffe09c";
+    ctx.beginPath();
+    ctx.moveTo(0, -0.6);
+    ctx.lineTo(0.5, -0.1);
+    ctx.lineTo(0, 0.4);
+    ctx.lineTo(-0.5, -0.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  const drawHomeScrollTable = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#3a2618";
+    ctx.fillRect(-2.2, -0.8, 4.4, 1.4);
+    ctx.fillRect(-2.4, 0.6, 0.6, 1.6);
+    ctx.fillRect(1.8, 0.6, 0.6, 1.6);
+    ctx.fillStyle = "#d9c29a";
+    ctx.fillRect(-1.6, -0.4, 3.2, 0.5);
+    ctx.fillStyle = "#f7e2bd";
+    ctx.beginPath();
+    ctx.ellipse(-0.9, -0.15, 0.5, 0.32, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.9, -0.15, 0.5, 0.32, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#cfa86a";
+    ctx.fillRect(-1.5, -0.15, 3.0, 0.3);
+    ctx.restore();
+  };
+
+  const drawHomePotionShelf = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#3c2818";
+    ctx.fillRect(-2.2, -2.4, 4.4, 4.8);
+    ctx.fillStyle = "#2b1b12";
+    ctx.fillRect(-2.4, -2.6, 4.8, 0.5);
+    ctx.fillRect(-2.4, 1.9, 4.8, 0.5);
+    ctx.fillStyle = "#7ad8ff";
+    ctx.fillRect(-1.8, -1.6, 1.0, 1.4);
+    ctx.fillStyle = "#ff85d8";
+    ctx.fillRect(0, -1.3, 1.0, 1.2);
+    ctx.fillStyle = "#ffe46c";
+    ctx.fillRect(-1.8, 0.4, 1.0, 1.2);
+    ctx.fillStyle = "#7cffae";
+    ctx.fillRect(0, 0.4, 1.0, 1.2);
+    ctx.restore();
+  };
+
+  const drawHomeCrystalPedestal = (scale = 1) => {
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = "#2f2138";
+    ctx.fillRect(-1.0, -0.4, 2.0, 2.4);
+    ctx.fillStyle = "#6c4aa4";
+    ctx.beginPath();
+    ctx.moveTo(0, -1.6);
+    ctx.lineTo(1.0, -0.4);
+    ctx.lineTo(0.4, 0.8);
+    ctx.lineTo(-0.4, 0.8);
+    ctx.lineTo(-1.0, -0.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(150,120,255,0.45)";
+    ctx.beginPath();
+    ctx.ellipse(0, -1.0, 1.2, 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+
   switch (type) {
-    case "stalagmite_small":
-      ctx.fillStyle = "#2a2722";
+    case "stalagmite_small": {
+      ctx.fillStyle = "#2e2b26";
       ctx.beginPath();
-      ctx.moveTo(0, 2.4);
-      ctx.lineTo(-1.2, -1.8);
-      ctx.lineTo(1.2, -1.4);
+      ctx.ellipse(0, 1.6, 1.6, 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#4b433a";
+      ctx.beginPath();
+      ctx.ellipse(-0.5, 0.4, 0.85, 1.6, -0.25, 0, Math.PI * 2);
+      ctx.ellipse(0.9, 0.3, 0.75, 1.4, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.beginPath();
+      ctx.ellipse(-0.8, 0.1, 0.35, 0.8, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
+    case "stalagmite_tall": {
+      ctx.fillStyle = "#312c28";
+      ctx.beginPath();
+      ctx.ellipse(0, 1.8, 1.9, 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#52483f";
+      ctx.beginPath();
+      ctx.moveTo(-1.0, 1.2);
+      ctx.quadraticCurveTo(-0.6, -1.4, -0.2, -2.6);
+      ctx.quadraticCurveTo(0.4, -1.3, 1.2, 1.1);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.1)";
+      ctx.beginPath();
+      ctx.moveTo(-0.5, -0.6);
+      ctx.quadraticCurveTo(-0.2, -1.8, 0.3, -1.0);
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 0.22;
+      ctx.stroke();
+      break;
+    }
+    case "stalactite_small": {
+      ctx.fillStyle = "#2f2a25";
+      ctx.beginPath();
+      ctx.ellipse(0, -1.8, 1.6, 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#473d35";
+      ctx.beginPath();
+      ctx.moveTo(-1.0, -1.8);
+      ctx.quadraticCurveTo(0, 0.2, 0, 2.0);
+      ctx.quadraticCurveTo(0, 0.2, 1.0, -1.8);
       ctx.closePath();
       ctx.fill();
       break;
-    case "stalagmite_tall":
-      ctx.fillStyle = "#332f28";
+    }
+    case "stalactite_tall": {
+      ctx.fillStyle = "#2c2823";
       ctx.beginPath();
-      ctx.moveTo(0, 2.6);
-      ctx.lineTo(-1.4, -2.4);
-      ctx.lineTo(0.8, -2.0);
-      ctx.lineTo(1.4, -0.4);
+      ctx.ellipse(0, -2.2, 1.9, 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#4a4238";
+      ctx.beginPath();
+      ctx.moveTo(-1.2, -2.0);
+      ctx.quadraticCurveTo(-0.4, 0.4, -0.2, 2.6);
+      ctx.quadraticCurveTo(0.6, 0.6, 1.3, -2.0);
       ctx.closePath();
       ctx.fill();
       break;
-    case "stalactite_small":
-      ctx.fillStyle = "#36312a";
-      ctx.beginPath();
-      ctx.moveTo(-0.8, -2.6);
-      ctx.lineTo(0.8, -2.2);
-      ctx.lineTo(0.0, 1.8);
-      ctx.closePath();
-      ctx.fill();
-      break;
-    case "stalactite_tall":
-      ctx.fillStyle = "#2e2a24";
-      ctx.beginPath();
-      ctx.moveTo(-1.0, -2.8);
-      ctx.lineTo(1.2, -2.4);
-      ctx.lineTo(0.4, 2.2);
-      ctx.lineTo(-0.6, 1.2);
-      ctx.closePath();
-      ctx.fill();
-      break;
+    }
     case "moss_patch":
-      ctx.fillStyle = "#2f5030";
+      ctx.fillStyle = "#30533c";
       ctx.beginPath();
-      ctx.ellipse(0, 0.2, 2.8, 1.6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0.2, 2.5, 1.4, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#3f7a3b";
-      ctx.ellipse(-0.6, 0, 1.4, 0.8, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#49a064";
+      ctx.beginPath();
+      ctx.ellipse(-0.9, -0.1, 1.1, 0.7, 0, 0, Math.PI * 2);
+      ctx.ellipse(0.9, 0.0, 1.0, 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case "glowing_moss":
+      ctx.fillStyle = "rgba(20, 40, 30, 0.7)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.2, 2.4, 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(90, 255, 200, 0.8)";
+      ctx.beginPath();
+      ctx.ellipse(-0.8, -0.1, 0.9, 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(0.9, 0.0, 0.85, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.beginPath();
+      ctx.ellipse(0.2, -0.2, 0.35, 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case "glowing_moss_field":
+      ctx.fillStyle = "rgba(18, 45, 32, 0.7)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.4, 4.8, 2.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(80, 255, 190, 0.8)";
+      ctx.beginPath();
+      ctx.ellipse(-1.6, -0.1, 1.8, 1.0, 0, 0, Math.PI * 2);
+      ctx.ellipse(1.8, 0.2, 1.7, 0.9, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0.6, 2.2, 1.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(160,255,220,0.55)";
+      ctx.beginPath();
+      ctx.ellipse(-0.6, -0.2, 0.7, 0.45, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(1.0, 0.4, 0.8, 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
       break;
     case "fungus_cluster":
-      ctx.fillStyle = "#8c5dc4";
+      ctx.fillStyle = "#6f4fb1";
       ctx.beginPath();
-      ctx.arc(-1.2, 0.6, 0.9, 0, Math.PI * 2);
-      ctx.arc(0.8, 0.8, 1.0, 0, Math.PI * 2);
+      ctx.ellipse(-0.8, -0.2, 0.9, 0.6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0.9, -0.1, 0.8, 0.55, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#56307f";
-      ctx.fillRect(-1.4, 0.6, 0.3, 1.6);
-      ctx.fillRect(0.7, 0.8, 0.3, 1.5);
+      ctx.fillStyle = "#3d286e";
+      ctx.fillRect(-0.9, -0.2, 0.3, 1.8);
+      ctx.fillRect(0.6, -0.1, 0.3, 1.7);
+      ctx.fillStyle = "#9e8ce4";
+      ctx.beginPath();
+      ctx.ellipse(-0.8, -0.3, 0.5, 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
       break;
     case "bone_pile":
-      ctx.fillStyle = "#d9d4c9";
-      ctx.fillRect(-1.8, 0.6, 3.6, 0.6);
-      ctx.fillRect(-1.2, -0.4, 0.6, 1.6);
-      ctx.fillRect(0.4, -0.3, 0.6, 1.5);
+      ctx.fillStyle = "#f0e9df";
+      ctx.beginPath();
+      ctx.ellipse(-0.8, 0.6, 1.0, 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(1.0, 0.6, 1.1, 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#e5dbce";
+      ctx.beginPath();
+      ctx.ellipse(-0.3, -0.2, 0.4, 1.0, 0, 0, Math.PI * 2);
+      ctx.ellipse(0.7, -0.1, 0.4, 1.0, 0, 0, Math.PI * 2);
+      ctx.fill();
       break;
     case "skull":
-      ctx.fillStyle = "#e6e2d8";
-      ctx.fillRect(-1.0, -1.2, 2.0, 1.8);
-      ctx.fillStyle = "#1b1b1b";
-      ctx.fillRect(-0.6, -0.6, 0.6, 0.6);
-      ctx.fillRect(0.2, -0.6, 0.6, 0.6);
-      ctx.fillRect(-0.3, 0.2, 0.6, 0.5);
+      ctx.fillStyle = "#f3efe6";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.4, 1.4, 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#222222";
+      ctx.beginPath();
+      ctx.ellipse(-0.5, -0.4, 0.35, 0.38, 0, 0, Math.PI * 2);
+      ctx.ellipse(0.5, -0.4, 0.35, 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#cbbca9";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.4, 0.5, 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
       break;
     case "broken_crate":
-      ctx.fillStyle = "#6a3f1d";
-      ctx.fillRect(-2.2, -2.2, 4.4, 4.4);
-      ctx.strokeStyle = "#b87b42";
-      ctx.lineWidth = 0.4;
-      ctx.strokeRect(-2.2, -2.2, 4.4, 4.4);
+      ctx.fillStyle = "#7c4a25";
       ctx.beginPath();
-      ctx.moveTo(-2.2, -2.2);
-      ctx.lineTo(2.2, 2.2);
-      ctx.moveTo(-2.2, 2.2);
-      ctx.lineTo(2.2, -2.2);
+      ctx.moveTo(-1.6, -2.2);
+      ctx.lineTo(1.6, -2.2);
+      ctx.quadraticCurveTo(2.2, -2.2, 2.2, -1.6);
+      ctx.lineTo(2.2, 1.6);
+      ctx.quadraticCurveTo(2.2, 2.2, 1.6, 2.2);
+      ctx.lineTo(-1.6, 2.2);
+      ctx.quadraticCurveTo(-2.2, 2.2, -2.2, 1.6);
+      ctx.lineTo(-2.2, -1.6);
+      ctx.quadraticCurveTo(-2.2, -2.2, -1.6, -2.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#d7a162";
+      ctx.lineWidth = 0.26;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-2.0, -1.8);
+      ctx.lineTo(2.0, 1.8);
+      ctx.moveTo(-2.0, 1.8);
+      ctx.lineTo(2.0, -1.8);
       ctx.stroke();
       break;
     case "rusted_barrel":
-      ctx.fillStyle = "#4f3320";
-      ctx.fillRect(-1.5, -2.4, 3.0, 4.8);
-      ctx.fillStyle = "#d9842a";
-      ctx.fillRect(-1.5, -1.2, 3.0, 0.6);
-      ctx.fillRect(-1.5, 0.6, 3.0, 0.6);
+      ctx.fillStyle = "#3b2718";
+      ctx.beginPath();
+      ctx.ellipse(0, -1.6, 1.4, 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#83532d";
+      ctx.fillRect(-1.4, -1.6, 2.8, 3.2);
+      ctx.strokeStyle = "#e19f5c";
+      ctx.lineWidth = 0.22;
+      ctx.strokeRect(-1.4, -1.6, 2.8, 3.2);
+      ctx.fillStyle = "#3b2718";
+      ctx.beginPath();
+      ctx.ellipse(0, 1.6, 1.4, 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
       break;
     case "campfire_out":
-      ctx.fillStyle = "#3b2a1c";
-      ctx.fillRect(-2.0, 0.4, 4.0, 1.0);
-      ctx.fillRect(-0.6, -0.8, 1.2, 2.2);
-      break;
-    case "campfire_glow":
-      ctx.fillStyle = "rgba(247,157,42,0.45)";
+      ctx.fillStyle = "#2a2018";
       ctx.beginPath();
-      ctx.ellipse(0, 0.6, 2.4, 1.6, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 1.1, 2.2, 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#f79d2a";
+      ctx.fillStyle = "#5f3c22";
       ctx.beginPath();
-      ctx.moveTo(0, -1.8);
-      ctx.lineTo(-1.0, 0.8);
-      ctx.lineTo(1.0, 0.8);
+      ctx.moveTo(-1.4, 1.0);
+      ctx.lineTo(-0.2, -0.9);
+      ctx.lineTo(0.4, -0.6);
+      ctx.lineTo(-0.6, 1.0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(1.4, 1.0);
+      ctx.lineTo(0.2, -0.9);
+      ctx.lineTo(-0.4, -0.6);
+      ctx.lineTo(0.6, 1.0);
       ctx.closePath();
       ctx.fill();
       break;
-    case "torch_bracket":
-      ctx.fillStyle = "#272727";
-      ctx.fillRect(-0.4, -2.4, 0.8, 4.8);
+    case "campfire_glow":
+      ctx.fillStyle = "rgba(255,200,120,0.28)";
+      ctx.beginPath();
+      ctx.ellipse(0, 1.0, 2.4, 1.0, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = "#f79d2a";
       ctx.beginPath();
-      ctx.arc(0, -2.8, 0.8, 0, Math.PI * 2);
+      ctx.moveTo(0, -1.2);
+      ctx.quadraticCurveTo(-0.8, 0.2, 0, 1.0);
+      ctx.quadraticCurveTo(0.8, 0.2, 0, -1.2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(-0.4, -0.2, 0.35, 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case "torch_bracket":
+      ctx.fillStyle = "#2e2e2e";
+      ctx.fillRect(-0.3, -2.1, 0.6, 3.8);
+      ctx.fillStyle = "#f7a43a";
+      ctx.beginPath();
+      ctx.ellipse(0, -2.3, 0.7, 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,220,160,0.75)";
+      ctx.beginPath();
+      ctx.ellipse(0, -2.3, 1.0, 0.7, 0, 0, Math.PI * 2);
       ctx.fill();
       break;
     case "chain_hook":
-      ctx.strokeStyle = "#4a4a4a";
-      ctx.lineWidth = 0.4;
+      ctx.strokeStyle = "rgba(140,140,140,0.9)";
+      ctx.lineWidth = 0.28;
       ctx.beginPath();
-      ctx.moveTo(0, -2.8);
-      ctx.lineTo(0, 1.4);
-      ctx.arc(0.4, 2.2, 0.9, Math.PI * 0.8, Math.PI * 1.8);
+      ctx.moveTo(0, -2.6);
+      ctx.quadraticCurveTo(0.4, -1.8, -0.1, -1.0);
+      ctx.quadraticCurveTo(0.4, -0.2, -0.1, 0.6);
+      ctx.quadraticCurveTo(0.3, 1.2, -0.4, 1.8);
       ctx.stroke();
       break;
     case "drip_pool":
-      ctx.fillStyle = "#1b2f3a";
+      ctx.fillStyle = "#132933";
       ctx.beginPath();
-      ctx.ellipse(0, 0.6, 2.6, 1.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0.6, 2.4, 1.2, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#2d4f65";
-      ctx.ellipse(-0.5, 0.4, 1.4, 0.7, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#3a728a";
+      ctx.beginPath();
+      ctx.ellipse(-0.6, 0.3, 1.2, 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
       break;
     case "crystal_blue":
-      ctx.fillStyle = "#4ce1ff";
+      ctx.fillStyle = "#5cd6ff";
       ctx.beginPath();
-      ctx.moveTo(0, -2.6);
-      ctx.lineTo(1.1, 2.2);
-      ctx.lineTo(-1.1, 2.2);
+      ctx.moveTo(0, -2.2);
+      ctx.lineTo(1.0, 1.6);
+      ctx.lineTo(0, 2.6);
+      ctx.lineTo(-1.0, 1.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.4)";
+      ctx.beginPath();
+      ctx.moveTo(0, -1.8);
+      ctx.lineTo(0.4, 1.0);
+      ctx.lineTo(0, 1.8);
       ctx.closePath();
       ctx.fill();
       break;
     case "crystal_orange":
-      ctx.fillStyle = "#ffa94d";
+      ctx.fillStyle = "#ffb067";
       ctx.beginPath();
-      ctx.moveTo(-0.4, -2.4);
-      ctx.lineTo(1.2, 2.0);
-      ctx.lineTo(-1.6, 2.0);
+      ctx.moveTo(0, -2.0);
+      ctx.lineTo(1.1, 1.4);
+      ctx.lineTo(0.2, 2.4);
+      ctx.lineTo(-1.0, 1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.beginPath();
+      ctx.moveTo(0, -1.6);
+      ctx.lineTo(0.3, 1.0);
+      ctx.lineTo(-0.2, 1.7);
       ctx.closePath();
       ctx.fill();
       break;
     case "rubble_heap":
       ctx.fillStyle = "#2a2320";
       ctx.beginPath();
-      ctx.arc(-1.2, 0.8, 1.2, 0, Math.PI * 2);
-      ctx.arc(1.0, 0.6, 1.4, 0, Math.PI * 2);
+      ctx.ellipse(-1.0, 0.6, 1.2, 0.8, 0, 0, Math.PI * 2);
+      ctx.ellipse(1.1, 0.4, 1.4, 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#44372f";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.2, 0.8, 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
       break;
     case "spider_web":
-      ctx.strokeStyle = "rgba(255,255,255,0.3)";
-      ctx.lineWidth = 0.2;
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 0.18;
       ctx.beginPath();
-      ctx.arc(0, 0, 2.4, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 2.2, 1.8, 0, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(-2.4, 0);
-      ctx.lineTo(2.4, 0);
-      ctx.moveTo(0, -2.4);
-      ctx.lineTo(0, 2.4);
+      ctx.moveTo(-2.2, 0);
+      ctx.lineTo(2.2, 0);
+      ctx.moveTo(0, -1.8);
+      ctx.lineTo(0, 1.8);
+      ctx.moveTo(-1.5, -1.3);
+      ctx.lineTo(1.5, 1.3);
       ctx.stroke();
       break;
     case "ancient_rune":
-      ctx.fillStyle = "rgba(120, 180, 255, 0.2)";
+      ctx.fillStyle = "rgba(130, 200, 255, 0.22)";
       ctx.beginPath();
-      ctx.ellipse(0, 0, 2.6, 1.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, 2.4, 1.2, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#78b4ff";
-      ctx.fillRect(-0.3, -1.4, 0.6, 2.8);
-      ctx.fillRect(-1.1, -0.4, 2.2, 0.6);
+      ctx.fillStyle = "#7fb3ff";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.4, 0.35, 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, 0.6, 1.1, 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    case "floor_rune_ember": {
+      ctx.save();
+      ctx.scale(1.05, 1.05);
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
+      ctx.beginPath();
+      ctx.ellipse(0, 1.2, 2.5, 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "rgba(255,214,120,0.85)";
+      ctx.lineWidth = 0.35;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i += 1) {
+        const angle = (Math.PI / 3) * i;
+        ctx.moveTo(Math.cos(angle) * 0.4, Math.sin(angle) * 0.4);
+        ctx.lineTo(Math.cos(angle) * 1.6, Math.sin(angle) * 1.6);
+      }
+      ctx.stroke();
+      ctx.fillStyle = "rgba(255,240,160,0.8)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      break;
+    }
+    case "floor_rune_tide": {
+      ctx.save();
+      ctx.scale(1.1, 1.1);
+      ctx.strokeStyle = "rgba(140,220,255,0.85)";
+      ctx.lineWidth = 0.28;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 1.8, 1.0, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 1.05, 0.6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-1.4, 0);
+      ctx.quadraticCurveTo(-0.5, -1.1, 0.6, -0.4);
+      ctx.quadraticCurveTo(1.3, 0.1, 0.8, 0.9);
+      ctx.stroke();
+      ctx.restore();
+      break;
+    }
+    case "floor_rune_verdant": {
+      ctx.save();
+      ctx.scale(1.05, 1.05);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "rgba(150,255,150,0.8)";
+      ctx.lineWidth = 0.32;
+      ctx.beginPath();
+      ctx.moveTo(-1.2, 1.4);
+      ctx.quadraticCurveTo(-1.8, -0.6, 0.3, -1.8);
+      ctx.quadraticCurveTo(1.6, -1.0, 1.2, 0.4);
+      ctx.quadraticCurveTo(0.7, 1.8, -0.6, 1.1);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-0.4, -0.3);
+      ctx.quadraticCurveTo(0.4, 0.1, 0.9, -0.6);
+      ctx.stroke();
+      ctx.restore();
+      break;
+    }
+    case "hanging_vine":
+      ctx.fillStyle = "#253d26";
+      ctx.beginPath();
+      ctx.moveTo(0, -2.6);
+      ctx.quadraticCurveTo(-0.6, -1.4, -0.2, -0.4);
+      ctx.quadraticCurveTo(0.3, 0.6, -0.1, 1.6);
+      ctx.quadraticCurveTo(-0.4, 2.2, 0.2, 2.8);
+      ctx.lineTo(0.8, 2.3);
+      ctx.quadraticCurveTo(0.4, 1.4, 0.6, 0.3);
+      ctx.quadraticCurveTo(0.8, -0.8, 0.1, -2.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#4fbf66";
+      ctx.beginPath();
+      ctx.ellipse(-0.2, -0.8, 0.35, 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0.3, 0.8, 0.3, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
       break;
     case "home_bed":
-      ctx.fillStyle = "#2e1d1a";
-      ctx.fillRect(-3.0, -1.6, 6.0, 3.2);
-      ctx.fillStyle = "#3c2724";
-      ctx.fillRect(-2.7, -1.3, 5.4, 2.6);
-      ctx.fillStyle = "#99b9ff";
-      ctx.fillRect(-2.4, -1.0, 1.9, 1.4);
-      ctx.fillStyle = "#4f65c6";
-      ctx.fillRect(-0.5, -1.0, 3.2, 2.2);
-      ctx.fillStyle = "#233275";
-      ctx.fillRect(-0.5, 0.6, 3.2, 0.6);
+      drawHomeBed(1);
+      break;
+    case "home_bed_large":
+      drawHomeBed(1.48);
       break;
     case "home_potion_table":
-      ctx.fillStyle = "#412b24";
-      ctx.fillRect(-2.5, -1.0, 5.0, 2.2);
-      ctx.fillRect(-2.8, 1.0, 0.8, 2.2);
-      ctx.fillRect(2.0, 1.0, 0.8, 2.2);
-      ctx.fillStyle = "#d9b376";
-      ctx.fillRect(-2.3, -1.3, 4.6, 0.6);
-      ctx.fillStyle = "#7ad8ff";
-      ctx.beginPath();
-      ctx.ellipse(-1.3, -0.3, 0.6, 0.9, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#8e5cff";
-      ctx.beginPath();
-      ctx.ellipse(0.2, -0.4, 0.55, 0.8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#ffd966";
-      ctx.beginPath();
-      ctx.ellipse(1.5, -0.5, 0.5, 0.7, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#f2f2f2";
-      ctx.fillRect(-1.5, -1.6, 0.5, 0.6);
-      ctx.fillRect(0.0, -1.6, 0.45, 0.6);
-      ctx.fillRect(1.3, -1.6, 0.45, 0.6);
+      drawHomePotionTable(1);
+      break;
+    case "home_potion_table_large":
+      drawHomePotionTable(1.5);
       break;
     case "home_lounge":
-      ctx.fillStyle = "#2a1b2d";
-      ctx.fillRect(-3.2, -1.2, 6.4, 2.8);
-      ctx.fillStyle = "#4a2f58";
-      ctx.fillRect(-3.0, -1.0, 6.0, 2.4);
-      ctx.fillStyle = "#613e75";
-      ctx.fillRect(-2.6, -0.6, 5.2, 1.6);
-      ctx.fillStyle = "#2e1c39";
-      ctx.fillRect(-3.0, 1.4, 0.8, 1.8);
-      ctx.fillRect(2.2, 1.4, 0.8, 1.8);
+      drawHomeLounge(1);
+      break;
+    case "home_lounge_large":
+      drawHomeLounge(1.4);
       break;
     case "home_rug":
-      ctx.fillStyle = "#2b203e";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 3.4, 2.0, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#8d66ff";
-      ctx.lineWidth = 0.3;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 2.6, 1.5, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = "#f0b45c";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, 1.6, 0.95, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      drawHomeRug(1.0);
       break;
     case "home_books":
-      ctx.fillStyle = "#3a2416";
-      ctx.fillRect(-2.4, -2.2, 4.8, 4.4);
-      ctx.fillStyle = "#24160e";
-      ctx.fillRect(-2.6, -2.4, 5.2, 0.5);
-      ctx.fillRect(-2.6, 1.9, 5.2, 0.5);
-      ctx.fillStyle = "#d85f6a";
-      ctx.fillRect(-2.0, -1.6, 0.8, 3.0);
-      ctx.fillStyle = "#6fd0c8";
-      ctx.fillRect(-0.9, -1.2, 0.9, 2.6);
-      ctx.fillStyle = "#f3d26d";
-      ctx.fillRect(0.3, -0.8, 0.8, 2.2);
-      ctx.fillStyle = "#8b6cff";
-      ctx.fillRect(1.6, -1.4, 0.7, 2.8);
+      drawHomeBooks(1);
+      break;
+    case "home_books_large":
+      drawHomeBooks(1.42);
+      break;
+    case "home_rug_large":
+      drawHomeRug(1.45);
+      break;
+    case "home_rug_grand":
+      drawHomeGrandRug(1.35);
+      break;
+    case "home_round_table":
+      drawHomeRoundTable(1, false);
+      break;
+    case "home_round_table_large":
+      drawHomeRoundTable(1.25, true);
+      break;
+    case "home_chair":
+      drawHomeChair(1);
+      break;
+    case "home_lamp":
+      drawHomeLamp(1);
+      break;
+    case "home_spell_table":
+      drawHomeSpellTable(1);
+      break;
+    case "home_scroll_table":
+      drawHomeScrollTable(1);
+      break;
+    case "home_potion_shelf":
+      drawHomePotionShelf(1);
+      break;
+    case "home_crystal_pedestal":
+      drawHomeCrystalPedestal(1);
+      break;
+    case "home_feast_table":
+      ctx.save();
+      ctx.scale(1.35, 1.35);
+      ctx.fillStyle = "#3e2818";
+      ctx.fillRect(-3.4, -1.3, 6.8, 2.6);
+      ctx.fillStyle = "#693d22";
+      ctx.fillRect(-3.0, -1.0, 6.0, 2.0);
+      ctx.fillStyle = "#2a1b10";
+      ctx.fillRect(-2.8, 1.0, 0.6, 2.0);
+      ctx.fillRect(2.2, 1.0, 0.6, 2.0);
+      ctx.fillStyle = "#d4b27a";
+      ctx.beginPath();
+      ctx.ellipse(-1.6, -0.2, 0.9, 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(0, -0.1, 1.1, 0.55, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ff9b62";
+      ctx.beginPath();
+      ctx.ellipse(1.8, -0.2, 0.8, 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f2f2f2";
+      ctx.fillRect(-2.2, -0.8, 0.4, 0.6);
+      ctx.fillRect(-1.0, -0.7, 0.4, 0.6);
+      ctx.fillRect(1.0, -0.7, 0.4, 0.6);
+      ctx.fillRect(2.4, -0.8, 0.4, 0.6);
+      ctx.restore();
+      break;
+    case "home_storage":
+      ctx.save();
+      ctx.scale(1.3, 1.3);
+      ctx.fillStyle = "#4a2c12";
+      ctx.fillRect(-2.4, -1.6, 4.8, 3.2);
+      ctx.fillStyle = "#2c180a";
+      ctx.fillRect(-2.6, -1.8, 5.2, 0.6);
+      ctx.strokeStyle = "#c58b46";
+      ctx.lineWidth = 0.25;
+      ctx.strokeRect(-2.4, -1.6, 4.8, 3.2);
+      ctx.beginPath();
+      ctx.moveTo(-2.4, -0.4);
+      ctx.lineTo(2.4, -0.4);
+      ctx.moveTo(-2.4, 0.6);
+      ctx.lineTo(2.4, 0.6);
+      ctx.stroke();
+      ctx.fillStyle = "#f2d19a";
+      ctx.fillRect(-0.3, -0.2, 0.6, 0.6);
+      ctx.restore();
+      break;
+    case "home_cauldron":
+      ctx.save();
+      ctx.scale(1.28, 1.28);
+      ctx.fillStyle = "#1e1024";
+      ctx.beginPath();
+      ctx.ellipse(0, 0.4, 2.8, 2.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#140a18";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.6, 2.4, 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#3ef2b1";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.7, 2.2, 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(150,255,210,0.45)";
+      ctx.beginPath();
+      ctx.ellipse(-1.0, -0.7, 0.6, 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#1b091d";
+      ctx.beginPath();
+      ctx.moveTo(-2.6, 0.0);
+      ctx.lineTo(-3.2, 0.8);
+      ctx.lineTo(-2.6, 1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(2.6, 0.0);
+      ctx.lineTo(3.2, 0.8);
+      ctx.lineTo(2.6, 1.2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
       break;
     default:
       ctx.fillStyle = "#322c27";
@@ -2212,9 +3871,8 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
   const robeBaseY = 3.15;
   const belly = Math.sin((walkPhase + (shooting ? 0.5 : 0)) * (Math.PI / 2)) * 0.12;
   const sway = Math.sin(animationTime * 0.0025) * 0.12;
-  const staffGlow = shooting
-    ? 0.36 + mutationPhase * 0.08
-    : 0.22 + stageRatio * 0.12 + mutationPhase * 0.06;
+  const staffGlowBase = 0.32 + stageRatio * 0.18 + mutationPhase * 0.08;
+  const staffGlow = shooting ? staffGlowBase + 0.32 : staffGlowBase;
   const staffShift = shooting ? 0.55 + mutationPhase * 0.08 : 0.1 + mutationPhase * 0.05;
   const staffBaseX = orientation === "back" ? 2.0 : orientation === "side" ? 2.4 : 2.8;
   const staffBaseY = orientation === "back" ? -1.6 : -1.4;
@@ -2290,6 +3948,21 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.4 + staffGlow * 0.35;
+    ctx.fillStyle =
+      mutationPhase >= 2 ? "rgba(255,120,200,0.6)" : "rgba(255,220,150,0.55)";
+    ctx.beginPath();
+    ctx.arc(0, -1.4, 2.2 + staffGlow * 0.9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha *= 0.75;
+    ctx.fillStyle =
+      mutationPhase >= 2 ? "rgba(255,80,160,0.45)" : "rgba(255,235,200,0.42)";
+    ctx.beginPath();
+    ctx.arc(0, -1.4, 2.8 + staffGlow, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
     ctx.restore();
   };
 
@@ -2601,6 +4274,30 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.globalAlpha = 1;
     }
 
+    if (showHat && hatBase && hatShadow) {
+      const rimWidth = robeWidth + 1.0;
+      ctx.save();
+      ctx.translate(0, -1.05);
+      ctx.beginPath();
+      ctx.fillStyle = hatHighlight || "#f0d59a";
+      ctx.globalAlpha = 0.65;
+      ctx.ellipse(0, 0, rimWidth, 0.46, 0, 0, Math.PI);
+      ctx.lineTo(rimWidth, 0.18);
+      ctx.ellipse(0, 0.18, rimWidth, 0.32, 0, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = hatShadow || "#856436";
+      ctx.beginPath();
+      ctx.ellipse(0, -0.04, rimWidth * 0.92, 0.3, 0, 0, Math.PI);
+      ctx.lineTo(rimWidth * 0.92, 0.08);
+      ctx.ellipse(0, 0.08, rimWidth * 0.92, 0.22, 0, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     drawFeetFront();
   };
 
@@ -2760,10 +4457,35 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.closePath();
     ctx.fill();
 
+    ctx.fillStyle = headColor;
+    ctx.beginPath();
+    ctx.ellipse(0, -2.0, 1.8, 1.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     drawBackSpines();
     drawBackHorns();
 
     if (showHat && hatBase && hatShadow && hatHighlight) {
+      ctx.save();
+      ctx.translate(0, -1.15);
+      ctx.fillStyle = hatBase;
+      const brimWidth = robeWidth + 1.15;
+      ctx.beginPath();
+      ctx.ellipse(0, 0.05, brimWidth, 0.58, 0, 0, Math.PI);
+      ctx.lineTo(brimWidth, 0.32);
+      ctx.ellipse(0, 0.32, brimWidth, 0.42, 0, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = hatShadow;
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.ellipse(0, 0.12, brimWidth * 0.92, 0.34, 0, 0, Math.PI);
+      ctx.lineTo(brimWidth * 0.92, 0.38);
+      ctx.ellipse(0, 0.38, brimWidth * 0.92, 0.24, 0, Math.PI, 0, true);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
       ctx.fillStyle = hatBase;
       ctx.beginPath();
       if (hatTattered) {
@@ -2790,7 +4512,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.ellipse(0, -1.7, robeWidth + 0.75, 0.7 + mutationPhase * 0.05, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = hatHighlight;
-      ctx.globalAlpha = 0.5;
+      ctx.globalAlpha = 0.35;
       ctx.beginPath();
       if (hatTattered) {
         ctx.moveTo(-0.2, -4.6 - stageRatio * 0.55);
@@ -2812,15 +4534,18 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
   const drawSparkles = () => {
     const sparkleCount = 6;
+    const baseRadius = 2.2 + stageRatio * 0.18 + mutationPhase * 0.15;
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
     for (let i = 0; i < sparkleCount; i += 1) {
-      const angle = animationTime * 0.003 + i * ((Math.PI * 2) / sparkleCount);
-      const radius = 2.2 + Math.sin(animationTime * 0.004 + i * 1.7) * 0.25 + stageRatio * 0.18 + mutationPhase * 0.15;
+      const angle = (i / sparkleCount) * Math.PI * 2;
+      const radius =
+        baseRadius + Math.sin(animationTime * 0.006 + i * 1.7) * (0.12 + mutationPhase * 0.05);
       const xOffset = Math.cos(angle) * radius;
       const yOffset = Math.sin(angle) * (radius * 0.6) - 1.1;
       const sizeBase = 0.2 + stageRatio * 0.08;
-      const size = sizeBase + Math.sin(animationTime * 0.01 + i * 2.3) * (0.05 + mutationPhase * 0.015);
+      const size =
+        sizeBase + Math.sin(animationTime * 0.01 + i * 2.1) * (0.05 + mutationPhase * 0.015);
       ctx.save();
       const alphaBase = sparkleAlphaBias + stageRatio * 0.18;
       const alphaPulse = 0.08 + mutationPhase * 0.04;
@@ -2833,7 +4558,15 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
         ctx.globalAlpha *= 0.6;
         ctx.fillStyle = "rgba(255,80,140,0.85)";
         ctx.beginPath();
-        ctx.ellipse(xOffset * 0.9, yOffset * 0.9 - 0.2, size * 0.65, size * 0.45, angle * 1.2, 0, Math.PI * 2);
+        ctx.ellipse(
+          xOffset * 0.9,
+          yOffset * 0.9 - 0.2,
+          size * 0.65,
+          size * 0.45,
+          angle,
+          0,
+          Math.PI * 2,
+        );
         ctx.fill();
       }
       ctx.restore();
@@ -2911,6 +4644,17 @@ function drawPreySprite(prey, x, y) {
   ctx.ellipse(0, 2.2, shadowWidth, shadowHeight, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  if (prey.bonded) {
+    const glowPulse = 0.5 + Math.sin((prey.animTimer || 0) / 95) * 0.25;
+    ctx.save();
+    ctx.globalAlpha = 0.45 + glowPulse * 0.25;
+    ctx.fillStyle = "rgba(255, 234, 140, 0.6)";
+    ctx.beginPath();
+    ctx.ellipse(0, 1.2, 2.4 + glowPulse * 0.8, 1.4 + glowPulse * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   const variant = prey.variant;
   const bodyColor = prey.color || "#7befa2";
 
@@ -2984,6 +4728,146 @@ function drawPreySprite(prey, x, y) {
     ctx.fillStyle = "#312313";
     ctx.fillRect(-0.7, -0.1, 0.24, 0.24);
     ctx.fillRect(0.5, -0.1, 0.24, 0.24);
+  } else if (variant === "lifebloom") {
+    const petalPulse = 0.6 + Math.sin((prey.animTimer || 0) / 90 + wobble) * 0.18;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "rgba(140, 255, 170, 0.35)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 2.6 + petalPulse, 1.4 + petalPulse * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = "rgba(90, 180, 110, 0.45)";
+    ctx.beginPath();
+    ctx.ellipse(-0.6, 1.4, 0.6, 1.4, -0.3, 0, Math.PI * 2);
+    ctx.ellipse(0.6, 1.4, 0.6, 1.4, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI * 2 * i) / 6 + wobble * 0.4;
+      const px = Math.cos(angle) * 1.4;
+      const py = Math.sin(angle) * 1.4;
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(px * 0.7, py * 0.7 - 0.4, px, py);
+      ctx.quadraticCurveTo(px * 0.5, py * 0.5 + 0.4, 0, 0);
+    }
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.ellipse(0, -0.2, 0.6, 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2b5d33";
+    ctx.beginPath();
+    ctx.ellipse(-0.2, -0.2, 0.14, 0.18, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.2, -0.2, 0.14, 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#92ffba";
+    ctx.beginPath();
+    ctx.moveTo(-0.5, 0.8);
+    ctx.quadraticCurveTo(0, 1.4 + wobble * 0.4, 0.5, 0.8);
+    ctx.quadraticCurveTo(0, 1.7, -0.5, 0.8);
+    ctx.fill();
+    if (prey.bonded) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 234, 160, 0.8)";
+      ctx.lineWidth = 0.3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.2 + wobble * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  } else if (variant === "glintmoth") {
+    const wingPulse = 0.6 + Math.sin((prey.animTimer || 0) / 80 + wobble) * 0.2;
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = "rgba(255, 236, 158, 0.4)";
+    ctx.beginPath();
+    ctx.ellipse(-1.6, -0.2, 1.7 + wingPulse * 0.5, 1.3 + wingPulse * 0.4, Math.PI / 6, 0, Math.PI * 2);
+    ctx.ellipse(1.6, -0.2, 1.7 + wingPulse * 0.5, 1.3 + wingPulse * 0.4, -Math.PI / 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(-0.8, -1.6);
+    ctx.quadraticCurveTo(0, -2.4 - wobble * 0.4, 0.8, -1.6);
+    ctx.quadraticCurveTo(1.1, 0.2 + wobble * 0.5, 0, 2.0);
+    ctx.quadraticCurveTo(-1.1, 0.2 - wobble * 0.5, -0.8, -1.6);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.ellipse(-0.32, -0.5, 0.28, 0.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.32, -0.5, 0.28, 0.4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#363636";
+    ctx.beginPath();
+    ctx.ellipse(-0.32, -0.48, 0.14, 0.18, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.32, -0.48, 0.14, 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffdc7a";
+    ctx.beginPath();
+    ctx.moveTo(-0.4, 0.6);
+    ctx.quadraticCurveTo(0, 1.2 + wobble * 0.35, 0.4, 0.6);
+    ctx.quadraticCurveTo(0, 1.6, -0.4, 0.6);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255, 228, 120, 0.75)";
+    ctx.lineWidth = 0.22;
+    ctx.beginPath();
+    ctx.moveTo(0, -1.8 - wobble * 0.2);
+    ctx.quadraticCurveTo(-0.6, -2.3, -0.3, -2.8);
+    ctx.moveTo(0, -1.8 - wobble * 0.2);
+    ctx.quadraticCurveTo(0.6, -2.3, 0.3, -2.8);
+    ctx.stroke();
+  } else if (variant === "echosprite") {
+    const pulse = 0.5 + Math.sin((prey.animTimer || 0) / 65 + wobble) * 0.2;
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "rgba(158, 201, 255, 0.45)";
+    ctx.beginPath();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI * 2 * i) / 6;
+      const px = Math.cos(angle) * (1.8 + pulse * 0.4);
+      const py = Math.sin(angle) * (1.8 + pulse * 0.4);
+      ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(0, -1.6);
+    ctx.quadraticCurveTo(0.9, -1.9 - wobble * 0.3, 1.1, -0.4);
+    ctx.quadraticCurveTo(1.0, 0.9 + wobble * 0.2, 0, 2.0);
+    ctx.quadraticCurveTo(-1.0, 0.9 - wobble * 0.2, -1.1, -0.4);
+    ctx.quadraticCurveTo(-0.9, -1.9 - wobble * 0.3, 0, -1.6);
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.ellipse(-0.32, -0.4, 0.26, 0.34, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.32, -0.4, 0.26, 0.34, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2d3f63";
+    ctx.beginPath();
+    ctx.ellipse(-0.32, -0.4, 0.14, 0.2, 0, 0, Math.PI * 2);
+    ctx.ellipse(0.32, -0.4, 0.14, 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#b6d4ff";
+    ctx.beginPath();
+    ctx.moveTo(-0.4, 0.7);
+    ctx.quadraticCurveTo(0, 1.3 + wobble * 0.3, 0.4, 0.7);
+    ctx.quadraticCurveTo(0, 1.6, -0.4, 0.7);
+    ctx.fill();
   } else {
     ctx.fillStyle = bodyColor;
     ctx.beginPath();
@@ -3054,7 +4938,24 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
     ctx.restore();
   }
 
+  const glowPulse = 0.35 + Math.sin(animationTime * 0.005 + (enemy.glowPhase || 0)) * 0.25;
+  const glowRadius = (enemy.radius || 18) * (0.55 + glowPulse * 0.25);
+  ctx.save();
+  ctx.globalAlpha = 0.24 + glowPulse * 0.22;
+  ctx.fillStyle = enemy.color || "#f25858";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, glowRadius, glowRadius, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const walkPhase = ((enemy.walkCycle || 0) / 240) * Math.PI * 2;
+  const stepAmount = Math.sin(walkPhase);
+  const bobAmount = Math.cos(walkPhase) * 0.22;
+  const attackIntensity = Math.min(1, (enemy.attackTimer || 0) / 520);
+
   ctx.scale(scale, scale);
+  ctx.scale(1 + attackIntensity * 0.2, 1 + attackIntensity * 0.14);
+  ctx.translate(0, bobAmount * 0.5 - attackIntensity * 0.35);
 
   ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
@@ -3093,7 +4994,7 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
     const spawnFade = spawnProgress > 0 ? 0.5 + (1 - spawnProgress) * 0.5 : 1;
 
     ctx.save();
-    ctx.translate(0, torsoBob - (enemy.isLunging ? 0.4 : 0));
+    ctx.translate(0, torsoBob - (enemy.isLunging ? 0.4 : 0) - attackIntensity * 0.8);
     if (spawnProgress > 0) {
       ctx.globalAlpha = spawnFade;
     }
@@ -3155,25 +5056,30 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
     const spawnFade = spawnProgress > 0 ? 0.55 + (1 - spawnProgress) * 0.45 : 1;
 
     const drawDefault = () => {
+      const leftStep = stepAmount * 0.32;
+      const rightStep = -stepAmount * 0.32;
+      ctx.save();
+      ctx.globalAlpha *= spawnFade;
+      ctx.translate(0, attackIntensity * -0.1);
       ctx.fillStyle = "#3b2610";
       ctx.beginPath();
       ctx.ellipse(0, 0, 2.6, 2.2, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#f79d2a";
       ctx.beginPath();
-      ctx.ellipse(0, -0.2, 2.2, 1.8 + wobble * 0.2, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -0.2, 2.2, 1.8 + wobble * 0.2 + attackIntensity * 0.3, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#251508";
       ctx.beginPath();
       ctx.moveTo(-1.4, -0.2);
-      ctx.lineTo(-0.6, 1.6 + wobble * 0.4);
-      ctx.lineTo(-2.0, 1.2);
+      ctx.lineTo(-0.6, 1.6 + wobble * 0.4 + leftStep * 0.4);
+      ctx.lineTo(-2.0, 1.2 + leftStep * 0.2);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
       ctx.moveTo(1.4, -0.2);
-      ctx.lineTo(0.6, 1.6 + wobble * 0.4);
-      ctx.lineTo(2.0, 1.2);
+      ctx.lineTo(0.6, 1.6 + wobble * 0.4 + rightStep * 0.4);
+      ctx.lineTo(2.0, 1.2 + rightStep * 0.2);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = "#fcd78e";
@@ -3190,29 +5096,35 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
       ctx.beginPath();
       ctx.ellipse(0.55, -1.0, 0.18, 0.22, 0, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
     };
 
     const drawGnasher = () => {
       const chomp = 0.6 + Math.sin(time * 2.4 + enemy.animTimer * 0.18) * 0.25;
+      const bite = chomp + attackIntensity * 0.5;
+      const jawDrop = chomp * 0.4 + attackIntensity * 0.35;
+      const leftStep = stepAmount * 0.55;
+      const rightStep = -stepAmount * 0.55;
       ctx.save();
       ctx.globalAlpha *= spawnFade;
       if (enemy.isLunging) {
         ctx.scale(1.12, 0.9);
       }
+      ctx.translate(0, attackIntensity * -0.12);
       ctx.fillStyle = "#2a0406";
       ctx.beginPath();
       ctx.ellipse(0, 0, 2.9, 2.4, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#f24c52";
       ctx.beginPath();
-      ctx.ellipse(0, -0.2, 2.4, 1.9 + chomp * 0.3, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, -0.2, 2.5, 2.0 + bite * 0.35, 0, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = "#140001";
       ctx.beginPath();
       ctx.moveTo(-2.3, -0.3);
-      ctx.quadraticCurveTo(0, 1.2 + chomp, 2.3, -0.3);
-      ctx.quadraticCurveTo(0, 1.0 + chomp * 0.6, -2.3, -0.5);
+      ctx.quadraticCurveTo(0, 1.2 + bite, 2.3, -0.3);
+      ctx.quadraticCurveTo(0, 0.9 + jawDrop, -2.3, -0.5);
       ctx.closePath();
       ctx.fill();
 
@@ -3222,7 +5134,7 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
         ctx.beginPath();
         ctx.moveTo(tx - 0.22, 0.0);
         ctx.lineTo(tx + 0.22, 0.0);
-        ctx.lineTo(tx, 0.65 + chomp * 0.45);
+        ctx.lineTo(tx, 0.65 + bite * 0.45);
         ctx.closePath();
         ctx.fill();
       }
@@ -3252,27 +5164,28 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
       ctx.fillStyle = "#5d0f18";
       for (let i = -3; i <= 3; i += 1) {
         const px = i * 0.5;
+        const stepOffset = i < 0 ? leftStep : rightStep;
         ctx.beginPath();
         ctx.moveTo(px, -2.2);
-        ctx.lineTo(px + 0.3, -1.5);
-        ctx.lineTo(px - 0.3, -1.5);
+        ctx.lineTo(px + 0.3, -1.5 + stepOffset * 0.25);
+        ctx.lineTo(px - 0.3, -1.5 + stepOffset * 0.25);
         ctx.closePath();
         ctx.fill();
       }
 
       ctx.fillStyle = "#3c0b12";
       ctx.beginPath();
-      ctx.ellipse(-1.6, 1.2, 0.6, 1.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(-1.6, 1.2 + leftStep * 0.35, 0.6, 1.4 + leftStep * 0.15, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.ellipse(1.6, 1.2, 0.6, 1.4, 0, 0, Math.PI * 2);
+      ctx.ellipse(1.6, 1.2 + rightStep * 0.35, 0.6, 1.4 - rightStep * 0.15, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#180305";
       ctx.beginPath();
-      ctx.ellipse(-1.6, 2.4, 0.65, 0.35, 0, 0, Math.PI * 2);
+      ctx.ellipse(-1.6, 2.4 + leftStep * 0.25, 0.65, 0.35, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.ellipse(1.6, 2.4, 0.65, 0.35, 0, 0, Math.PI * 2);
+      ctx.ellipse(1.6, 2.4 + rightStep * 0.25, 0.65, 0.35, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     };
@@ -3281,7 +5194,7 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
       const sway = Math.sin(time * 2 + enemy.animTimer * 0.1) * 0.2;
       ctx.save();
       ctx.globalAlpha *= spawnFade;
-      ctx.translate(0, sway);
+      ctx.translate(0, sway - attackIntensity * 0.2);
       ctx.fillStyle = "#120724";
       ctx.beginPath();
       ctx.moveTo(0, -2.8);
@@ -3320,16 +5233,16 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
 
       ctx.fillStyle = "#472497";
       ctx.beginPath();
-      ctx.moveTo(-1.8, -0.4);
-      ctx.quadraticCurveTo(-3.0, 0.6, -2.8, 1.6);
-      ctx.quadraticCurveTo(-2.6, 2.4, -1.6, 2.0);
+      ctx.moveTo(-1.8, -0.4 + stepAmount * 0.3);
+      ctx.quadraticCurveTo(-3.0, 0.6 + stepAmount * 0.4, -2.8, 1.6 + stepAmount * 0.3);
+      ctx.quadraticCurveTo(-2.6, 2.4 + stepAmount * 0.2, -1.6, 2.0);
       ctx.quadraticCurveTo(-0.6, 1.6, -0.8, 0.2);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(1.8, -0.4);
-      ctx.quadraticCurveTo(3.0, 0.6, 2.8, 1.6);
-      ctx.quadraticCurveTo(2.6, 2.4, 1.6, 2.0);
+      ctx.moveTo(1.8, -0.4 - stepAmount * 0.3);
+      ctx.quadraticCurveTo(3.0, 0.6 - stepAmount * 0.4, 2.8, 1.6 - stepAmount * 0.3);
+      ctx.quadraticCurveTo(2.6, 2.4 - stepAmount * 0.2, 1.6, 2.0);
       ctx.quadraticCurveTo(0.6, 1.6, 0.8, 0.2);
       ctx.closePath();
       ctx.fill();
@@ -3348,6 +5261,7 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
       const flare = Math.sin(time * 3 + enemy.animTimer * 0.22) * 0.3;
       ctx.save();
       ctx.globalAlpha *= spawnFade;
+      ctx.translate(0, attackIntensity * -0.18);
       ctx.fillStyle = "#3a1606";
       ctx.beginPath();
       ctx.ellipse(0, 0.3, 3.0, 2.0, 0, 0, Math.PI * 2);
@@ -3363,14 +5277,14 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
 
       ctx.fillStyle = "#52220b";
       ctx.beginPath();
-      ctx.moveTo(-1.8, 0.4);
-      ctx.quadraticCurveTo(-2.8, 1.8, -1.8, 2.6);
+      ctx.moveTo(-1.8, 0.4 + stepAmount * 0.25);
+      ctx.quadraticCurveTo(-2.8, 1.8 + stepAmount * 0.35, -1.8, 2.6 + stepAmount * 0.2);
       ctx.lineTo(-1.2, 1.0);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(1.8, 0.4);
-      ctx.quadraticCurveTo(2.8, 1.8, 1.8, 2.6);
+      ctx.moveTo(1.8, 0.4 - stepAmount * 0.25);
+      ctx.quadraticCurveTo(2.8, 1.8 - stepAmount * 0.35, 1.8, 2.6 - stepAmount * 0.2);
       ctx.lineTo(1.2, 1.0);
       ctx.closePath();
       ctx.fill();
@@ -3410,6 +5324,7 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
       const pulse = 0.6 + Math.sin(time * 4 + enemy.animTimer * 0.3) * 0.25;
       ctx.save();
       ctx.globalAlpha *= spawnFade;
+      ctx.translate(Math.sin(walkPhase * 0.5) * 0.2, attackIntensity * -0.25);
       ctx.fillStyle = "rgba(20,12,46,0.95)";
       ctx.beginPath();
       ctx.ellipse(0, 0, 2.6, 2.4, 0, 0, Math.PI * 2);
@@ -3453,18 +5368,19 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
       ctx.strokeStyle = "rgba(160,150,255,0.35)";
       ctx.lineWidth = 0.25;
       ctx.beginPath();
-      ctx.moveTo(-1.8, 0.6);
-      ctx.quadraticCurveTo(-2.8, 1.6, -1.6, 2.4);
-      ctx.moveTo(1.8, 0.6);
-      ctx.quadraticCurveTo(2.8, 1.6, 1.6, 2.4);
+      ctx.moveTo(-1.8, 0.6 + stepAmount * 0.2);
+      ctx.quadraticCurveTo(-2.8, 1.6 + stepAmount * 0.3, -1.6, 2.4 + stepAmount * 0.25);
+      ctx.moveTo(1.8, 0.6 - stepAmount * 0.2);
+      ctx.quadraticCurveTo(2.8, 1.6 - stepAmount * 0.3, 1.6, 2.4 - stepAmount * 0.25);
       ctx.stroke();
       ctx.restore();
     };
 
     const drawDoomclaw = () => {
-      const slam = Math.sin(time * 2.2 + enemy.animTimer * 0.16);
+      const slam = Math.sin(time * 2.2 + enemy.animTimer * 0.16) + attackIntensity * 0.5;
       ctx.save();
       ctx.globalAlpha *= spawnFade;
+      ctx.translate(0, attackIntensity * -0.22);
       ctx.fillStyle = "#330615";
       ctx.beginPath();
       ctx.ellipse(0, 0.2, 3.2, 2.5, 0, 0, Math.PI * 2);
@@ -3495,15 +5411,15 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
 
       ctx.fillStyle = "#5a1128";
       ctx.beginPath();
-      ctx.moveTo(-2.4, 0.6);
-      ctx.lineTo(-3.2, 2.8 + slam * 0.3);
-      ctx.lineTo(-1.8, 2.4 + slam * 0.2);
+      ctx.moveTo(-2.4, 0.6 + stepAmount * 0.2);
+      ctx.lineTo(-3.2, 2.8 + slam * 0.3 + stepAmount * 0.3);
+      ctx.lineTo(-1.8, 2.4 + slam * 0.2 + stepAmount * 0.2);
       ctx.closePath();
       ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(2.4, 0.6);
-      ctx.lineTo(3.2, 2.8 + slam * 0.3);
-      ctx.lineTo(1.8, 2.4 + slam * 0.2);
+      ctx.moveTo(2.4, 0.6 - stepAmount * 0.2);
+      ctx.lineTo(3.2, 2.8 + slam * 0.3 - stepAmount * 0.3);
+      ctx.lineTo(1.8, 2.4 + slam * 0.2 - stepAmount * 0.2);
       ctx.closePath();
       ctx.fill();
 
@@ -3581,6 +5497,158 @@ function drawEnemySprite(enemy, offsetX, offsetY) {
   );
 }
 
+function drawSpellEffects(offsetX, offsetY) {
+  spellEffects.forEach((effect) => {
+    const baseX = (effect.followPlayer ? player.x : effect.x) - offsetX;
+    const baseY = (effect.followPlayer ? player.y : effect.y) - offsetY;
+    ctx.save();
+    ctx.translate(baseX, baseY);
+    switch (effect.type) {
+      case "blast": {
+        const progress = Math.min(effect.progress || 0, 1);
+        const maxRadius = effect.maxRadius || player.attackRange * 2;
+        const radius = Math.max(40, maxRadius * (0.35 + 0.65 * progress));
+        const inner = radius * 0.35;
+        ctx.globalCompositeOperation = "lighter";
+        const gradient = ctx.createRadialGradient(0, 0, inner, 0, 0, radius);
+        gradient.addColorStop(0, `rgba(249,214,76,${0.55 * (1 - progress * 0.3)})`);
+        gradient.addColorStop(0.45, `rgba(249,214,76,${0.3 * (1 - progress)})`);
+        gradient.addColorStop(1, "rgba(249,214,76,0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 232, 140, ${0.8 * (1 - progress)})`;
+        ctx.lineWidth = 4 + 6 * (1 - progress);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.82, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "heal": {
+        const progress = effect.progress || 0;
+        const pulse = Math.sin(progress * Math.PI * 2) * 0.3 + 0.7;
+        const radius = 72 + pulse * 26;
+        ctx.globalCompositeOperation = "lighter";
+        const gradient = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius);
+        gradient.addColorStop(0, "rgba(142,249,255,0.6)");
+        gradient.addColorStop(0.4, "rgba(142,249,255,0.25)");
+        gradient.addColorStop(1, "rgba(142,249,255,0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(142,249,255,0.65)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.6, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "haste": {
+        const progress = effect.progress || 0;
+        const fade = 1 - progress;
+        ctx.globalCompositeOperation = "lighter";
+
+        const glow = ctx.createRadialGradient(0, 0, 6, 0, 0, 28);
+        glow.addColorStop(0, `rgba(120,255,150,${0.18 * fade})`);
+        glow.addColorStop(1, "rgba(120,255,150,0)");
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(0, 0, 28, 0, Math.PI * 2);
+        ctx.fill();
+
+        const sparkCount = 14;
+        for (let i = 0; i < sparkCount; i += 1) {
+          const angle = (Math.PI * 2 * i) / sparkCount + animationTime * 0.01;
+          const wobble = Math.sin(animationTime * 0.015 + i) * 3.5;
+          const radius = 18 + wobble;
+          const sx = Math.cos(angle) * radius;
+          const sy = Math.sin(angle) * radius * 0.6;
+          const size = 2.2 + Math.sin(animationTime * 0.03 + i) * 0.8;
+          ctx.fillStyle = `rgba(180,255,150,${0.6 * fade})`;
+          ctx.beginPath();
+          ctx.ellipse(sx, sy, size, size * 0.6, angle, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = `rgba(120,240,120,${0.35 * fade})`;
+          ctx.beginPath();
+          ctx.ellipse(sx * 0.65, sy * 0.65, size * 0.35, size * 0.2, angle, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "terrashield": {
+        const rootDuration = effect.rootDuration || TERRASHIELD_ROOT_DURATION;
+        const elapsed = effect.elapsed || 0;
+        const rootPhase = Math.min(elapsed / rootDuration, 1);
+        const armorPhase = elapsed > rootDuration ? (elapsed - rootDuration) / Math.max(effect.duration - rootDuration, 1) : 0;
+
+        ctx.globalCompositeOperation = "lighter";
+
+        const baseGlow = ctx.createRadialGradient(0, 0, 10, 0, 0, 44);
+        baseGlow.addColorStop(0, `rgba(120,180,120,${0.18 + armorPhase * 0.1})`);
+        baseGlow.addColorStop(1, "rgba(60,90,60,0)");
+        ctx.fillStyle = baseGlow;
+        ctx.beginPath();
+        ctx.arc(0, 0, 44, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = `rgba(110,180,90,${0.45 + armorPhase * 0.35})`;
+        ctx.lineWidth = 3.2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 32 + Math.sin(animationTime * 0.004) * 2.5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(160,220,120,${0.4 * (1 - armorPhase * 0.4)})`;
+        ctx.lineWidth = 2.0;
+        const shards = 7;
+        for (let i = 0; i < shards; i += 1) {
+          const angle = (Math.PI * 2 * i) / shards + animationTime * 0.0025;
+          const radius = 20 + Math.sin(animationTime * 0.006 + i) * 4;
+          const inner = 8 + rootPhase * 6;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+          ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.9);
+          ctx.stroke();
+        }
+
+        ctx.strokeStyle = `rgba(255,255,255,${0.25 * (1 - armorPhase)})`;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, 18 + rootPhase * 6, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.globalCompositeOperation = "source-over";
+        break;
+      }
+      default:
+        break;
+    }
+    ctx.restore();
+    ctx.globalCompositeOperation = "source-over";
+  });
+}
+
+function drawDamageNumbers(offsetX, offsetY) {
+  if (damageNumbers.length === 0) return;
+  ctx.save();
+  ctx.font = "14px 'Press Start 2P', monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  damageNumbers.forEach((dmg) => {
+    const alpha = Math.max(0, dmg.life / dmg.maxLife);
+    ctx.fillStyle = dmg.shadow;
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.fillText(dmg.value, dmg.x - offsetX, dmg.y - offsetY + 2);
+    ctx.fillStyle = dmg.color;
+    ctx.globalAlpha = alpha;
+    ctx.fillText(dmg.value, dmg.x - offsetX, dmg.y - offsetY);
+  });
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
 function drawParticles(offsetX, offsetY) {
   particles.forEach((p) => {
     const alpha = p.life / p.maxLife;
@@ -3637,6 +5705,12 @@ function drawMinimap() {
       (0.5 +
         0.5 *
           Math.sin(animationTime * 0.008 + Math.PI / 2));
+  const spellBlink =
+    0.4 +
+    0.6 *
+      (0.5 +
+        0.5 *
+          Math.sin(animationTime * 0.006 + Math.PI / 3));
 
   minimapCtx.save();
   minimapCtx.globalAlpha = manaBlink;
@@ -3650,6 +5724,14 @@ function drawMinimap() {
   minimapCtx.globalAlpha = healthBlink;
   minimapCtx.fillStyle = "#ff6b7d";
   healthDrops.forEach((drop) => {
+    minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
+  });
+  minimapCtx.restore();
+
+  minimapCtx.save();
+  minimapCtx.globalAlpha = spellBlink;
+  minimapCtx.fillStyle = "#f4a54c";
+  spellDrops.forEach((drop) => {
     minimapCtx.fillRect(drop.x * scaleX - 3, drop.y * scaleY - 3, 6, 6);
   });
   minimapCtx.restore();
@@ -3699,6 +5781,7 @@ function getNearestPrey(x, y) {
   let closestDistance = Infinity;
   for (let i = 0; i < preyList.length; i += 1) {
     const prey = preyList[i];
+    if (prey.bonded) continue;
     const distance = Math.hypot(prey.x - x, prey.y - y);
     if (distance < closestDistance) {
       closest = prey;
@@ -3711,6 +5794,7 @@ function getNearestPrey(x, y) {
 function attemptConsumePrey(enemy) {
   for (let i = preyList.length - 1; i >= 0; i -= 1) {
     const prey = preyList[i];
+    if (prey.bonded) continue;
     const distance = Math.hypot(prey.x - enemy.x, prey.y - enemy.y);
     if (distance < enemy.radius + prey.radius + 6) {
       spawnParticles(prey.x, prey.y, prey.color || "#7befa2", 120, 12);
@@ -3792,17 +5876,47 @@ function generateDungeon() {
 
   const dungeonCenterX = MAP_COLS / 2;
   const dungeonCenterY = MAP_ROWS / 2;
-  let homeRoom = rooms[0];
+  const smallCandidates = rooms.filter((room) => room.width <= 8 && room.height <= 8);
+  let homeRoom = null;
   let homeScore = -Infinity;
-  rooms.forEach((room) => {
+
+  const evaluateSideScore = (room) => {
     const area = room.width * room.height;
     const distance = Math.hypot(room.centerX - dungeonCenterX, room.centerY - dungeonCenterY);
-    const score = area - distance * 1.8;
-    if (score > homeScore) {
-      homeScore = score;
-      homeRoom = room;
-    }
-  });
+    const edgeDistance = Math.min(
+      room.centerX,
+      MAP_COLS - room.centerX,
+      room.centerY,
+      MAP_ROWS - room.centerY,
+    );
+    const edgeBias = Math.max(0, (MAP_COLS / 2 - edgeDistance) * 0.6);
+    const areaBias = Math.max(0, 14 - area) * 0.35;
+    return distance * 1.4 + edgeBias + areaBias;
+  };
+
+  if (smallCandidates.length > 0) {
+    smallCandidates.forEach((room) => {
+      const score = evaluateSideScore(room);
+      if (score > homeScore) {
+        homeScore = score;
+        homeRoom = room;
+      }
+    });
+  }
+
+  if (!homeRoom) {
+    homeRoom = rooms[0];
+    homeScore = -Infinity;
+    rooms.forEach((room) => {
+      const area = room.width * room.height;
+      const distance = Math.hypot(room.centerX - dungeonCenterX, room.centerY - dungeonCenterY);
+      const score = area - distance * 1.8;
+      if (score > homeScore) {
+        homeScore = score;
+        homeRoom = room;
+      }
+    });
+  }
   homeRoom.isHome = true;
 
   rooms.sort((a, b) => a.centerX + a.centerY - (b.centerX + b.centerY));
@@ -3898,29 +6012,94 @@ function generateDungeon() {
       y: (room.y + safeOffset(offsetY, room.height) + 0.5) * CELL_SIZE,
     });
 
-    const bedPos = toWorld(0.9, 0.9);
-    const potionPos = toWorld(room.width - 1.4, 1.0);
-    const loungePos = toWorld(room.width - 1.6, room.height - 1.4);
-    const rugPos = toWorld(room.width / 2 - 0.5, room.height / 2 - 0.6);
-    const shelfPos = toWorld(1.0, room.height - 1.6);
+    const centerRug = toWorld(room.width / 2 - 0.3, room.height / 2 - 0.3);
+    const roundTable = toWorld(room.width / 2 - 0.25, room.height / 2 - 1.2);
+    const frontChair = toWorld(room.width / 2 - 0.2, room.height / 2 + 0.35);
+    const leftChair = toWorld(room.width / 2 - 1.35, room.height / 2 - 0.9);
+    const rightChair = toWorld(room.width / 2 + 0.95, room.height / 2 - 0.9);
+    const lampLeft = toWorld(0.7, 0.5);
+    const lampRight = toWorld(room.width - 0.8, 0.5);
+    const bedPos = toWorld(0.6, 0.9);
+    const potionCorner = toWorld(room.width - 1.1, 0.9);
+    const loungePos = toWorld(room.width - 1.2, room.height - 0.7);
+    const spellTablePos = toWorld(room.width - 1.2, room.height / 2 - 0.8);
+    const scrollTablePos = toWorld(room.width - 1.25, room.height / 2 + 0.8);
+    const potionShelfPos = toWorld(0.7, room.height / 2 - 0.3);
+    const bookWallPos = toWorld(0.9, room.height - 1.0);
+    const cauldronPos = toWorld(room.width - 0.8, room.height / 2 + 0.35);
+    const crystalPos = toWorld(room.width / 2 - 0.1, room.height - 1.0);
+    const mossHighlights = [toWorld(0.4, 0.3), toWorld(room.width - 0.5, room.height - 0.4)];
 
-    [
-      { pos: rugPos, type: "home_rug", speed: 0.18, intensity: 0.4 },
-      { pos: bedPos, type: "home_bed", speed: 0.24, intensity: 0.5 },
-      { pos: potionPos, type: "home_potion_table", speed: 0.35, intensity: 0.85 },
-      { pos: loungePos, type: "home_lounge", speed: 0.26, intensity: 0.6 },
-      { pos: shelfPos, type: "home_books", speed: 0.2, intensity: 0.35 },
-    ].forEach((item) => {
+    const homeItems = [
+      { pos: centerRug, type: "home_rug_grand", speed: 0.18, intensity: 0.55 },
+      { pos: roundTable, type: "home_round_table_large", speed: 0.25, intensity: 0.45 },
+      { pos: frontChair, type: "home_chair", rotation: Math.PI, speed: 0.18, intensity: 0.4 },
+      { pos: leftChair, type: "home_chair", rotation: -Math.PI / 8, speed: 0.18, intensity: 0.4 },
+      { pos: rightChair, type: "home_chair", rotation: Math.PI / 8, speed: 0.18, intensity: 0.4 },
+      { pos: lampLeft, type: "home_lamp", speed: 0.25, intensity: 0.75 },
+      { pos: lampRight, type: "home_lamp", speed: 0.28, intensity: 0.75 },
+      { pos: bedPos, type: "home_bed_large", speed: 0.24, intensity: 0.55 },
+      { pos: potionCorner, type: "home_potion_table_large", speed: 0.35, intensity: 0.92 },
+      { pos: loungePos, type: "home_lounge_large", speed: 0.28, intensity: 0.6 },
+      { pos: spellTablePos, type: "home_spell_table", speed: 0.32, intensity: 0.85 },
+      { pos: scrollTablePos, type: "home_scroll_table", speed: 0.28, intensity: 0.7 },
+      { pos: potionShelfPos, type: "home_potion_shelf", speed: 0.3, intensity: 0.65 },
+      { pos: bookWallPos, type: "home_books_large", speed: 0.24, intensity: 0.6 },
+      { pos: cauldronPos, type: "home_cauldron", speed: 0.32, intensity: 0.92 },
+      { pos: crystalPos, type: "home_crystal_pedestal", speed: 0.28, intensity: 0.8 },
+    ];
+
+    homeItems.forEach((item) => {
       decorations.push({
         x: item.pos.x,
         y: item.pos.y,
         type: item.type,
+        rotation: item.rotation || 0,
         phase: Math.random() * Math.PI * 2,
         speed: item.speed,
         intensity: item.intensity,
       });
     });
+
+    mossHighlights.forEach((pos) => {
+      decorations.push({
+        x: pos.x,
+        y: pos.y,
+        type: "glowing_moss",
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.25 + Math.random() * 0.2,
+        intensity: 0.7,
+      });
+    });
   }
+
+function createMossField(room) {
+  const centerTileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+  const centerTileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+  const centerX = (centerTileX + 0.5) * CELL_SIZE;
+  const centerY = (centerTileY + 0.5) * CELL_SIZE;
+  decorations.push({
+    x: centerX,
+    y: centerY,
+    type: "glowing_moss_field",
+    phase: Math.random() * Math.PI * 2,
+    speed: 0.3 + Math.random() * 0.2,
+    intensity: 0.8,
+  });
+  const clusterCount = 4 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < clusterCount; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = CELL_SIZE * 0.4 + Math.random() * CELL_SIZE * 0.6;
+    decorations.push({
+      x: centerX + Math.cos(angle) * distance,
+      y: centerY + Math.sin(angle) * distance,
+      type: "glowing_moss",
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.25 + Math.random() * 0.2,
+      intensity: 0.65 + Math.random() * 0.2,
+    });
+  }
+}
 
   rooms.forEach((room) => {
     if (room.isHome) return;
@@ -3964,7 +6143,87 @@ function generateDungeon() {
         }
       }
     }
+    if (Math.random() < 0.25) {
+      createMossField(room);
+    }
   });
+
+  rooms.forEach((room) => {
+    if (room.isHome) return;
+    const mossCount = 1 + Math.floor(Math.random() * 2);
+    let placed = 0;
+    let attempts = 0;
+    while (placed < mossCount && attempts < 12) {
+      const vertical = Math.random() < 0.5;
+      let tileX;
+      let tileY;
+      const leftWall = room.x + Math.min(room.width - 1, 1);
+      const rightWall = room.x + Math.max(1, room.width - 2);
+      const topWall = room.y + Math.min(room.height - 1, 1);
+      const bottomWall = room.y + Math.max(1, room.height - 2);
+      if (vertical) {
+        tileX = Math.random() < 0.5 ? leftWall : rightWall;
+        tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+      } else {
+        tileY = Math.random() < 0.5 ? topWall : bottomWall;
+        tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+      }
+      if (
+        placeDecoration(tileX, tileY, "glowing_moss", {
+          minDistance: CELL_SIZE * 0.6,
+          minOpenNeighbors: 3,
+        })
+      ) {
+        placed += 1;
+      }
+      attempts += 1;
+    }
+  });
+
+  rooms.forEach((room) => {
+    if (room.isHome) return;
+    const vineAttempts = 1 + Math.floor(Math.random() * 2);
+    let attempts = 0;
+    let placed = 0;
+    while (attempts < 10 && placed < vineAttempts) {
+      const placeTop = Math.random() < 0.5;
+      const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+      const tileY = placeTop ? room.y + 1 : room.y + Math.max(1, room.height - 2);
+      if (
+        placeDecoration(tileX, tileY, "hanging_vine", {
+          minDistance: CELL_SIZE * 0.75,
+          minOpenNeighbors: 3,
+        })
+      ) {
+        placed += 1;
+      }
+      attempts += 1;
+    }
+  });
+
+  const runeTypes = ["floor_rune_ember", "floor_rune_tide", "floor_rune_verdant"];
+  const runeTarget = 3 + Math.floor(Math.random() * 3);
+  let runePlaced = 0;
+  let runeAttempts = 0;
+  while (runePlaced < runeTarget && runeAttempts < 80) {
+    const room = rooms[Math.floor(Math.random() * rooms.length)];
+    if (!room || room.isHome) {
+      runeAttempts += 1;
+      continue;
+    }
+    const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+    const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+    if (
+      placeDecoration(tileX, tileY, runeTypes[Math.floor(Math.random() * runeTypes.length)], {
+        minDistance: CELL_SIZE * 2.0,
+        minOpenNeighbors: 5,
+      })
+    ) {
+      runePlaced += 1;
+    }
+    runeAttempts += 1;
+  }
+
   decorateHomeRoom(homeRoom);
 
   return { grid, rooms, decorations, spawn: { x: spawnRoom.centerX, y: spawnRoom.centerY } };
@@ -3997,7 +6256,14 @@ function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
     const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
     const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
     const key = `${tileX},${tileY}`;
-    if (manaUsedPositions.has(key) || healthUsedPositions.has(key) || meatUsedPositions.has(key)) continue;
+    if (
+      manaUsedPositions.has(key) ||
+      healthUsedPositions.has(key) ||
+      meatUsedPositions.has(key) ||
+      spellUsedPositions.has(key)
+    ) {
+      continue;
+    }
     const x = tileX * CELL_SIZE + CELL_SIZE / 2;
     const y = tileY * CELL_SIZE + CELL_SIZE / 2;
     if (Math.hypot(x - player.x, y - player.y) >= minDistance) {
@@ -4043,6 +6309,24 @@ function assignPatrolTarget(enemy) {
   const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
   enemy.targetX = tileX * CELL_SIZE + CELL_SIZE / 2;
   enemy.targetY = tileY * CELL_SIZE + CELL_SIZE / 2;
+}
+
+function assignWanderTarget(enemy) {
+  const baseRoom = enemy.homeRoom || getRoomAt(Math.floor(enemy.x / CELL_SIZE), Math.floor(enemy.y / CELL_SIZE));
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = CELL_SIZE * (1.6 + Math.random() * 2.4);
+    const candidateX = (baseRoom.centerX * CELL_SIZE) + Math.cos(angle) * distance;
+    const candidateY = (baseRoom.centerY * CELL_SIZE) + Math.sin(angle) * distance;
+    if (isWalkable(candidateX, candidateY, enemy.radius, enemy.collisionShrink ?? 0.65)) {
+      enemy.wanderTarget = { x: candidateX, y: candidateY };
+      return;
+    }
+  }
+  enemy.wanderTarget = {
+    x: enemy.x + (Math.random() - 0.5) * CELL_SIZE * 2,
+    y: enemy.y + (Math.random() - 0.5) * CELL_SIZE * 2,
+  };
 }
 
 function setPreyPatrolTarget(prey) {
@@ -4178,6 +6462,15 @@ function handleKeyDown(event) {
     case "D":
       keys.right = true;
       break;
+    case "1":
+      useSpell(0);
+      break;
+    case "2":
+      useSpell(1);
+      break;
+    case "3":
+      useSpell(2);
+      break;
     case " ":
     case "Enter":
       attack();
@@ -4281,7 +6574,6 @@ function init() {
   updatePauseButton();
   setupMobile();
   updateCanvasSize();
-  resetGame();
   requestAnimationFrame(loop);
 }
 
@@ -4364,6 +6656,12 @@ if (pauseBtn) {
 }
 
 restartBtn.addEventListener("click", resetGame);
+if (startOverlay) {
+  startOverlay.setAttribute("aria-hidden", "false");
+}
+if (startBtn) {
+  startBtn.addEventListener("click", startGame);
+}
 if (shareBtn) shareBtn.addEventListener("click", downloadShareImage);
 
 window.addEventListener("resize", () => {
