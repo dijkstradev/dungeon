@@ -5,9 +5,11 @@ const manaEl = document.querySelector(".mana");
 const timerEl = document.querySelector(".timer");
 const killsEl = document.querySelector(".kills");
 const hungerEl = document.querySelector(".hunger");
+const levelEl = document.querySelector(".level");
 const overlay = document.getElementById("game-over");
 const finalTimerEl = document.querySelector(".final-timer");
 const finalKillsEl = document.querySelector(".final-kills");
+const finalLevelEl = document.querySelector(".final-level");
 const restartBtn = document.getElementById("restart-btn");
 const joystick = document.getElementById("joystick");
 const joystickThumb = joystick.querySelector(".joystick-thumb");
@@ -49,12 +51,17 @@ const BASE_HUNGER_RATE = 0.45;
 const MEAT_COLOR = "#ff9b3d";
 const MAX_MUTATION_STAGE = 20;
 const ELITE_ENEMY_UNLOCK_MS = 5 * 60 * 1000;
+const LEVEL_DURATION_MS = 120000;
+const LEVEL_TRANSITION_DURATION = 600;
+const LEVEL_ELITE_UNLOCK = 5;
 
 const VIEWPORT = { width: canvas.width, height: canvas.height };
-const MAP_COLS = 60;
-const MAP_ROWS = 60;
+const MAP_BASE_COLS = 30;
+const MAP_BASE_ROWS = 30;
+const MAP_GROWTH_STEP = 4;
+let MAP_COLS = MAP_BASE_COLS;
+let MAP_ROWS = MAP_BASE_ROWS;
 const CELL_SIZE = 96;
-const MAP_SIZE = Math.max(MAP_COLS, MAP_ROWS) * CELL_SIZE;
 const DECOR_TYPES = [
   "stalagmite_small",
   "stalagmite_tall",
@@ -283,11 +290,11 @@ const DECOR_CLUSTER_OFFSETS = [
   { x: 0, y: -2 },
 ];
 
-const dungeonData = generateDungeon();
-const dungeonGrid = dungeonData.grid;
-const dungeonRooms = dungeonData.rooms;
-const spawnPoint = dungeonData.spawn;
-const decorations = dungeonData.decorations;
+let dungeonData = generateDungeon();
+let dungeonGrid = dungeonData.grid;
+let dungeonRooms = dungeonData.rooms;
+let spawnPoint = dungeonData.spawn;
+let decorations = dungeonData.decorations;
 
 const player = {
   x: spawnPoint.x * CELL_SIZE + CELL_SIZE / 2,
@@ -320,6 +327,12 @@ const player = {
   satchelPhase: 0,
   footstepToggle: false,
   footstepTimer: 0,
+  dashCooldown: 0,
+  dashActive: false,
+  dashVectorX: 0,
+  dashVectorY: 0,
+  dashRemaining: 0,
+  dashSpeed: 0,
   gunLevel: 0,
   nextGunUpgrade: GUN_UPGRADE_FIRST,
   hunger: 0,
@@ -341,17 +354,28 @@ const state = {
   kills: 0,
   durationWhenOver: 0,
   paused: false,
+  level: 1,
+  levelTimer: 0,
 };
 
 let manualPauseActive = false;
 let infoPauseActive = false;
+let visibilityPauseActive = false;
 let achievementTimer = 0;
 let lastTimestamp = performance.now();
 let animationTime = 0;
 let hungerWarningLevel = 0;
 let hasteTrailAccumulator = 0;
+let pauseStartTime = null;
+const levelTransition = {
+  active: false,
+  phase: "idle",
+  progress: 0,
+  pendingLevel: null,
+};
 
 const keys = { up: false, down: false, left: false, right: false };
+const keyTapTimers = { up: 0, down: 0, left: 0, right: 0 };
 
 const joystickState = {
   active: false,
@@ -375,10 +399,10 @@ const ENEMY_TYPES = [
   {
     id: "gnasher",
     behaviour: "chaser",
-    speed: 190,
-    speedGrowth: 0.42,
-    health: 35,
-    damage: 10,
+    speed: 210,
+    speedGrowth: 0.48,
+    health: 45,
+    damage: 11,
     color: "#f25858",
     weight: 0.45,
     radius: 16,
@@ -390,10 +414,10 @@ const ENEMY_TYPES = [
   {
     id: "stalker",
     behaviour: "sentry",
-    speed: 130,
-    speedGrowth: 0.36,
-    health: 45,
-    damage: 8,
+    speed: 150,
+    speedGrowth: 0.4,
+    health: 55,
+    damage: 9,
     color: "#8b5cf6",
     weight: 0.35,
     radius: 16,
@@ -405,10 +429,10 @@ const ENEMY_TYPES = [
   {
     id: "mauler",
     behaviour: "brute",
-    speed: 120,
-    speedGrowth: 0.4,
-    health: 70,
-    damage: 15,
+    speed: 135,
+    speedGrowth: 0.45,
+    health: 85,
+    damage: 17,
     color: "#f79d2a",
     weight: 0.2,
     radius: 19,
@@ -420,10 +444,10 @@ const ENEMY_TYPES = [
   {
     id: "blightfang",
     behaviour: "chaser",
-    speed: 210,
-    speedGrowth: 0.55,
-    health: 95,
-    damage: 16,
+    speed: 230,
+    speedGrowth: 0.6,
+    health: 110,
+    damage: 18,
     color: "#ff8456",
     weight: 0.18,
     radius: 18,
@@ -444,10 +468,10 @@ const ENEMY_TYPES = [
   {
     id: "voidreaver",
     behaviour: "sentry",
-    speed: 175,
-    speedGrowth: 0.5,
-    health: 120,
-    damage: 21,
+    speed: 195,
+    speedGrowth: 0.55,
+    health: 140,
+    damage: 23,
     color: "#7d7bff",
     weight: 0.12,
     radius: 20,
@@ -468,10 +492,10 @@ const ENEMY_TYPES = [
   {
     id: "doomclaw",
     behaviour: "brute",
-    speed: 145,
-    speedGrowth: 0.48,
-    health: 150,
-    damage: 26,
+    speed: 165,
+    speedGrowth: 0.52,
+    health: 175,
+    damage: 28,
     color: "#ff4d7a",
     weight: 0.14,
     radius: 22,
@@ -494,9 +518,9 @@ const ENEMY_TYPES = [
 const TITAN_TEMPLATE = {
   id: "titan",
   behaviour: "titan",
-  speed: 68,
-  health: 260,
-  damage: 50,
+  speed: 82,
+  health: 300,
+  damage: 52,
   color: "#ff4d94",
 };
 
@@ -610,8 +634,8 @@ function getIdleStateDuration(state) {
       return 0;
   }
 }
-const PREY_SPAWN_INTERVAL = 8500;
-const MAX_PREY = 14;
+const PREY_SPAWN_INTERVAL = 11500;
+const MAX_PREY = 10;
 const PREY_IDLE_MIN = 1400;
 const PREY_IDLE_MAX = 3000;
 const PREY_FLEE_RANGE = CELL_SIZE * 3.2;
@@ -650,11 +674,122 @@ function updateCanvasSize() {
   document.documentElement.style.setProperty("--spell-slot-size", `${slotSize}px`);
 }
 
+function applyMapDimensionsForLevel(level) {
+  const growth = Math.max(0, level - 1) * MAP_GROWTH_STEP;
+  MAP_COLS = MAP_BASE_COLS + growth;
+  MAP_ROWS = MAP_BASE_ROWS + growth;
+}
+
+function regenerateDungeonData() {
+  dungeonData = generateDungeon();
+  dungeonGrid = dungeonData.grid;
+  dungeonRooms = dungeonData.rooms;
+  spawnPoint = dungeonData.spawn;
+  decorations = dungeonData.decorations;
+}
+
+function repositionPlayerAtSpawn() {
+  player.x = spawnPoint.x * CELL_SIZE + CELL_SIZE / 2;
+  player.y = spawnPoint.y * CELL_SIZE + CELL_SIZE / 2;
+  player.facingX = 1;
+  player.facingY = 0;
+  player.lastFacingX = 1;
+  player.lastFacingY = 0;
+  player.dashActive = false;
+  player.dashRemaining = 0;
+  player.dashSpeed = 0;
+  player.dashCooldown = 0;
+  player.shootingTimer = 0;
+  Object.keys(keyTapTimers).forEach((key) => {
+    keyTapTimers[key] = 0;
+  });
+}
+
+function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false } = {}) {
+  const preservedCompanions =
+    keepCompanions && preyList.length
+      ? preyList.filter((prey) => prey.bonded && prey.companion)
+      : [];
+
+  enemies.length = 0;
+  manaDrops.length = 0;
+  healthDrops.length = 0;
+  meatDrops.length = 0;
+  spellDrops.length = 0;
+  particles.length = 0;
+  spellEffects.length = 0;
+  damageNumbers.length = 0;
+  manaUsedPositions.clear();
+  healthUsedPositions.clear();
+  meatUsedPositions.clear();
+  spellUsedPositions.clear();
+  preyList.length = 0;
+  nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
+  if (refillSpellSlots) {
+    for (let i = 0; i < spellSlots.length; i += 1) {
+      spellSlots[i] = null;
+    }
+    SPELL_TYPES.forEach((spell, index) => {
+      if (index < spellSlots.length) {
+        spellSlots[index] = spell.id;
+      }
+    });
+  }
+  Object.keys(enemyAggroFlags).forEach((key) => {
+    delete enemyAggroFlags[key];
+  });
+  spawnAccumulator = 0;
+  manaAccumulator = MANA_RESPAWN;
+  healthAccumulator = HEALTH_RESPAWN;
+  spellAccumulator = SPELL_RESPAWN;
+  titanAccumulator = 0;
+  companionSpeedBonus = 0;
+  companionEchoAccumulator = 0;
+  companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL * 0.85;
+  preyAccumulator = PREY_SPAWN_INTERVAL;
+  ensuredPackPrey = false;
+  ensuredGiantPrey = false;
+
+  const spawnX = spawnPoint.x * CELL_SIZE + CELL_SIZE / 2;
+  const spawnY = spawnPoint.y * CELL_SIZE + CELL_SIZE / 2;
+
+  preservedCompanions.forEach((companion, index) => {
+    const angle = (index / Math.max(1, preservedCompanions.length)) * Math.PI * 2;
+    const radius = CELL_SIZE * 0.45;
+    companion.x = spawnX + Math.cos(angle) * radius;
+    companion.y = spawnY + Math.sin(angle) * radius;
+    companion.bonded = true;
+    companion.targetX = null;
+    companion.targetY = null;
+    companion.state = "follow";
+    companion.followTargetX = spawnX;
+    companion.followTargetY = spawnY;
+    companion.spawnTimer = ENEMY_SPAWN_FLASH;
+    preyList.push(companion);
+  });
+
+  createManaDrop();
+  createHealthDrop();
+  createTitanEnemy();
+
+  if (!preyList.some((prey) => prey.variant === "lifebloom")) {
+    spawnHomeLifebloom();
+  }
+  for (let i = 0; i < Math.min(2, MAX_PREY); i += 1) {
+    createPrey();
+  }
+  updateSpellSlotsUI();
+  updateHUD();
+}
+
 function resetGame() {
   closeInfoOverlay(false);
   updateCanvasSize();
-  player.x = spawnPoint.x * CELL_SIZE + CELL_SIZE / 2;
-  player.y = spawnPoint.y * CELL_SIZE + CELL_SIZE / 2;
+  state.level = 1;
+  state.levelTimer = 0;
+  applyMapDimensionsForLevel(state.level);
+  regenerateDungeonData();
+  repositionPlayerAtSpawn();
   player.maxHealth = BASE_PLAYER_MAX_HEALTH;
   player.health = player.maxHealth;
   player.mana = STARTING_MANA;
@@ -679,6 +814,15 @@ function resetGame() {
   player.satchelPhase = 0;
   player.footstepToggle = false;
   player.footstepTimer = 0;
+  player.dashCooldown = 0;
+  player.dashActive = false;
+  player.dashVectorX = 0;
+  player.dashVectorY = 0;
+  player.dashRemaining = 0;
+  player.dashSpeed = 0;
+  Object.keys(keyTapTimers).forEach((key) => {
+    keyTapTimers[key] = 0;
+  });
   player.baseSpeed = 240;
   player.speed = player.baseSpeed;
   player.speedBoostTimer = 0;
@@ -693,42 +837,7 @@ function resetGame() {
   player.mutationStage = 0;
   player.lastFacingX = 0;
   player.lastFacingY = 1;
-  enemies.length = 0;
-  manaDrops.length = 0;
-  healthDrops.length = 0;
-  meatDrops.length = 0;
-  spellDrops.length = 0;
-  particles.length = 0;
-  spellEffects.length = 0;
-  damageNumbers.length = 0;
-  manaUsedPositions.clear();
-  healthUsedPositions.clear();
-  meatUsedPositions.clear();
-  spellUsedPositions.clear();
-  nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
-  for (let i = 0; i < spellSlots.length; i += 1) {
-    spellSlots[i] = null;
-  }
-  SPELL_TYPES.forEach((spell, index) => {
-    if (index < spellSlots.length) {
-      spellSlots[index] = spell.id;
-    }
-  });
-  Object.keys(enemyAggroFlags).forEach((key) => {
-    delete enemyAggroFlags[key];
-  });
-  spawnAccumulator = 0;
-  manaAccumulator = MANA_RESPAWN;
-  healthAccumulator = HEALTH_RESPAWN;
-  spellAccumulator = SPELL_RESPAWN;
-  titanAccumulator = 0;
-  preyList.length = 0;
-  companionSpeedBonus = 0;
-  companionEchoAccumulator = 0;
-  companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL * 0.85;
-  preyAccumulator = PREY_SPAWN_INTERVAL;
-  ensuredPackPrey = false;
-  ensuredGiantPrey = false;
+  rebuildWorldState({ refillSpellSlots: true, keepCompanions: false });
   state.running = true;
   state.over = false;
   state.startedAt = performance.now();
@@ -747,17 +856,10 @@ function resetGame() {
   hungerWarningLevel = 0;
   hasteTrailAccumulator = 0;
   document.body.classList.add("show-minimap");
-  createManaDrop();
-  createHealthDrop();
-  createTitanEnemy();
-  spawnHomeLifebloom();
-  spawnHomeGlintmoth();
-  spawnCompanionNearPlayer("echosprite", { originX: player.x, originY: player.y, maxDistance: COMPANION_NEAR_PLAYER_RADIUS * 0.6 });
-  for (let i = 0; i < Math.min(4, MAX_PREY); i += 1) {
-    createPrey();
-  }
-  updateSpellSlotsUI();
-  updateHUD();
+  levelTransition.active = false;
+  levelTransition.phase = "idle";
+  levelTransition.progress = 0;
+  levelTransition.pendingLevel = null;
 }
 
 function startGame() {
@@ -768,6 +870,63 @@ function startGame() {
     startOverlay.setAttribute("aria-hidden", "true");
   }
   resetGame();
+}
+
+function handleLevelProgress(delta) {
+  if (state.over) return;
+  if (levelTransition.active && levelTransition.phase === "out") return;
+  state.levelTimer += delta;
+  while (state.levelTimer >= LEVEL_DURATION_MS) {
+    state.levelTimer -= LEVEL_DURATION_MS;
+    beginLevelAdvance();
+  }
+}
+
+function beginLevelAdvance() {
+  if (levelTransition.active) return;
+  const completedLevel = state.level;
+  const nextLevel = completedLevel + 1;
+  showAchievement(`Level ${completedLevel} survived!`);
+  state.levelTimer = 0;
+  startLevelTransition(nextLevel);
+}
+
+function startLevelTransition(nextLevel) {
+  levelTransition.active = true;
+  levelTransition.phase = "out";
+  levelTransition.progress = 0;
+  levelTransition.pendingLevel = nextLevel;
+}
+
+function updateLevelTransition(delta) {
+  if (!levelTransition.active) return false;
+  if (levelTransition.phase === "out") {
+    levelTransition.progress = Math.min(1, levelTransition.progress + delta / LEVEL_TRANSITION_DURATION);
+    if (levelTransition.progress >= 1) {
+      applyLevelAdvance(levelTransition.pendingLevel);
+      levelTransition.phase = "in";
+      levelTransition.progress = 1;
+    }
+    return true;
+  }
+  if (levelTransition.phase === "in") {
+    levelTransition.progress = Math.max(0, levelTransition.progress - delta / LEVEL_TRANSITION_DURATION);
+    if (levelTransition.progress <= 0) {
+      levelTransition.active = false;
+      levelTransition.phase = "idle";
+      levelTransition.pendingLevel = null;
+      levelTransition.progress = 0;
+    }
+  }
+  return false;
+}
+
+function applyLevelAdvance(level) {
+  state.level = level;
+  applyMapDimensionsForLevel(level);
+  regenerateDungeonData();
+  repositionPlayerAtSpawn();
+  rebuildWorldState({ refillSpellSlots: false, keepCompanions: true });
 }
 
 function createEnemy() {
@@ -811,6 +970,8 @@ function createEnemy() {
     dashTimer: 0,
     dashDirX: 0,
     dashDirY: 0,
+    huntDirX: 0,
+    huntDirY: 0,
   };
   if (template.lungeRange) {
     enemy.lungeRange = template.lungeRange;
@@ -886,6 +1047,8 @@ function createTitanEnemy() {
     glowPhase: Math.random() * Math.PI * 2,
     spawnTimer: ENEMY_SPAWN_FLASH,
     attackTimer: 0,
+    huntDirX: 0,
+    huntDirY: 0,
   };
   enemies.push(enemy);
   spawnParticles(enemy.x, enemy.y, template.color, 160, 26);
@@ -893,7 +1056,8 @@ function createTitanEnemy() {
 
 function pickEnemyType() {
   const elapsed = performance.now() - (state.startedAt || 0);
-  const unlocked = ENEMY_TYPES.filter((type) => !type.unlockMs || elapsed >= type.unlockMs);
+  const elitesUnlocked = state.level >= LEVEL_ELITE_UNLOCK || elapsed >= ELITE_ENEMY_UNLOCK_MS;
+  const unlocked = ENEMY_TYPES.filter((type) => !type.unlockMs || elitesUnlocked);
   const pool =
     unlocked.length > 0
       ? unlocked
@@ -1329,6 +1493,7 @@ function updateHUD() {
   manaEl.textContent = player.mana.toString().padStart(3, " ");
   killsEl.textContent = state.kills.toString().padStart(3, "0");
   if (hungerEl) hungerEl.textContent = Math.floor(player.hunger).toString().padStart(3, " ");
+  if (levelEl) levelEl.textContent = state.level.toString().padStart(3, "0");
   const elapsed = state.over ? state.durationWhenOver : Math.floor((performance.now() - state.startedAt) / 1000);
   const minutes = Math.floor(elapsed / 60).toString().padStart(2, "0");
   const seconds = (elapsed % 60).toString().padStart(2, "0");
@@ -1370,11 +1535,12 @@ function updatePauseButton() {
 }
 
 function applyPauseState() {
-  const shouldPause = manualPauseActive || infoPauseActive;
+  const shouldPause = manualPauseActive || infoPauseActive || visibilityPauseActive;
   const changed = state.paused !== shouldPause;
   state.paused = shouldPause;
   updatePauseButton();
   if (state.paused) {
+    if (changed) pauseStartTime = performance.now();
     keys.up = keys.down = keys.left = keys.right = false;
     joystickState.active = false;
     if (joystickState.pointerId !== null && joystick && typeof joystick.releasePointerCapture === "function") {
@@ -1390,6 +1556,11 @@ function applyPauseState() {
     if (joystickThumb) joystickThumb.style.transform = "translate(-50%, -50%)";
   }
   if (!state.paused && changed) {
+    if (pauseStartTime !== null) {
+      const pauseDuration = performance.now() - pauseStartTime;
+      state.startedAt += pauseDuration;
+      pauseStartTime = null;
+    }
     lastTimestamp = performance.now();
   }
 }
@@ -1434,7 +1605,12 @@ function handleGunUpgrade() {
 
 function update(delta) {
   if (!initialStart) return;
+  const transitionHold = updateLevelTransition(delta);
   if (!state.running || state.paused) return;
+  if (transitionHold) {
+    return;
+  }
+  handleLevelProgress(delta);
   if (player.terrashieldTimer > 0) {
     player.terrashieldTimer = Math.max(0, player.terrashieldTimer - delta);
     if (player.terrashieldTimer === 0 && player.terrashieldBurstPending) {
@@ -1464,6 +1640,7 @@ function update(delta) {
   }
   const deltaSeconds = delta / 1000;
   player.shootingTimer = Math.max(0, player.shootingTimer - delta);
+  player.dashCooldown = Math.max(0, player.dashCooldown - delta);
 
   switch (player.blinkState) {
     case "idle":
@@ -1550,7 +1727,9 @@ function update(delta) {
     moveY = 0;
   }
 
-  let movedPlayer = false;
+  const dashMoved = updatePlayerDash(deltaSeconds);
+
+  let movedPlayer = dashMoved;
   if (moveX !== 0 || moveY !== 0) {
     const len = Math.hypot(moveX, moveY);
     moveX /= len;
@@ -1700,10 +1879,9 @@ function update(delta) {
 
     if (nearestPreyInfo) {
       const preyDistance = nearestPreyInfo.distance;
-      if (
-        healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD ||
-        preyDistance <= ENEMY_PREY_OPPORTUNITY_RANGE
-      ) {
+      const hungry = healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD;
+      const opportunistic = preyDistance <= ENEMY_PREY_OPPORTUNITY_RANGE && !shouldAggroPlayer;
+      if ((!shouldAggroPlayer || hungry) || opportunistic) {
         targetType = "prey";
         targetEntity = nearestPreyInfo.prey;
         targetDx = targetEntity.x - enemy.x;
@@ -1795,6 +1973,26 @@ function update(delta) {
     if (targetEntity) {
       let dirX = targetDx / (distance || 1);
       let dirY = targetDy / (distance || 1);
+      if ((targetType === "prey" && targetEntity) || (!shouldAggroPlayer && targetType === "prey")) {
+        const smoothing = 0.65;
+        const prevX = enemy.huntDirX ?? dirX;
+        const prevY = enemy.huntDirY ?? dirY;
+        const blendedX = prevX * smoothing + dirX * (1 - smoothing);
+        const blendedY = prevY * smoothing + dirY * (1 - smoothing);
+        const len = Math.hypot(blendedX, blendedY) || 1;
+        dirX = blendedX / len;
+        dirY = blendedY / len;
+        enemy.huntDirX = dirX;
+        enemy.huntDirY = dirY;
+      } else {
+        enemy.huntDirX = dirX;
+        enemy.huntDirY = dirY;
+      }
+      if ((targetType === "player" || targetType === "prey") && !hasTargetSight) {
+        const detour = findDetourDirection(enemy, targetEntity.x, targetEntity.y);
+        dirX = detour.x;
+        dirY = detour.y;
+      }
       let moveSpeed = enemy.speed;
       let shrink = enemy.collisionShrink ?? (isTitan ? 0.6 : 0.65);
       if (enemy.isLunging) {
@@ -2043,14 +2241,16 @@ function updatePrey(delta) {
       avoidX += (prey.x - player.x) * inv;
       avoidY += (prey.y - player.y) * inv;
     }
-    enemies.forEach((enemy) => {
-      const dist = Math.hypot(enemy.x - prey.x, enemy.y - prey.y);
-      if (dist < PREY_FLEE_RANGE * 1.15) {
-        const inv = 1 / Math.max(dist, 1);
-        avoidX += (prey.x - enemy.x) * inv;
-        avoidY += (prey.y - enemy.y) * inv;
-      }
-    });
+    if (!prey.bonded) {
+      enemies.forEach((enemy) => {
+        const dist = Math.hypot(enemy.x - prey.x, enemy.y - prey.y);
+        if (dist < PREY_FLEE_RANGE * 1.15) {
+          const inv = 1 / Math.max(dist, 1);
+          avoidX += (prey.x - enemy.x) * inv;
+          avoidY += (prey.y - enemy.y) * inv;
+        }
+      });
+    }
     if (avoidX !== 0 || avoidY !== 0) {
       const len = Math.hypot(avoidX, avoidY) || 1;
       const dirX = avoidX / len;
@@ -2165,8 +2365,63 @@ function updatePrey(delta) {
       }
     }
   } else {
-    companionEchoAccumulator = Math.max(0, companionEchoAccumulator - delta * 0.5);
+  companionEchoAccumulator = Math.max(0, companionEchoAccumulator - delta * 0.5);
   }
+}
+
+function registerMovementTap(directionKey, dirX, dirY) {
+  const now = performance.now();
+  const lastTap = keyTapTimers[directionKey] || 0;
+  if (now - lastTap <= DOUBLE_TAP_WINDOW) {
+    keyTapTimers[directionKey] = 0;
+    tryStartPlayerDash(dirX, dirY);
+  } else {
+    keyTapTimers[directionKey] = now;
+  }
+}
+
+function tryStartPlayerDash(dirX, dirY) {
+  if (!initialStart || state.paused || !state.running) return;
+  if (player.mana < PLAYER_DASH_COST) return;
+  if (player.dashCooldown > 0 || player.dashActive) return;
+  const len = Math.hypot(dirX, dirY);
+  if (len === 0) return;
+  const normX = dirX / len;
+  const normY = dirY / len;
+  player.dashActive = true;
+  player.dashVectorX = normX;
+  player.dashVectorY = normY;
+  player.dashRemaining = PLAYER_DASH_DISTANCE;
+  player.dashSpeed = PLAYER_DASH_DISTANCE / (PLAYER_DASH_DURATION / 1000);
+  player.facingX = normX;
+  player.facingY = normY;
+  player.lastFacingX = normX;
+  player.lastFacingY = normY;
+  player.mana = Math.max(0, player.mana - PLAYER_DASH_COST);
+  updateHUD();
+  player.dashCooldown = PLAYER_DASH_COOLDOWN;
+  player.satchelSwing = Math.min(1, player.satchelSwing + 0.5);
+  spawnParticles(player.x, player.y, "#f9d64c", 90, 8);
+}
+
+function updatePlayerDash(deltaSeconds) {
+  if (!player.dashActive) return false;
+  const travel = Math.min(player.dashRemaining, player.dashSpeed * deltaSeconds);
+  if (travel <= 0) {
+    player.dashActive = false;
+    return false;
+  }
+  const moved = moveEntityDistance(player, player.dashVectorX, player.dashVectorY, travel);
+  if (!moved) {
+    player.dashActive = false;
+    player.dashRemaining = 0;
+    return false;
+  }
+  player.dashRemaining = Math.max(0, player.dashRemaining - travel);
+  if (player.dashRemaining === 0) {
+    player.dashActive = false;
+  }
+  return true;
 }
 
 function findCompanionOrbitTarget(prey, angle, desiredDistance) {
@@ -2433,6 +2688,10 @@ function gameOver() {
   if (infoOverlay && !infoOverlay.classList.contains("info-overlay--hidden")) {
     closeInfoOverlay(false);
   }
+  levelTransition.active = false;
+  levelTransition.phase = "idle";
+  levelTransition.progress = 0;
+  levelTransition.pendingLevel = null;
   state.running = false;
   state.over = true;
   state.durationWhenOver = Math.floor((performance.now() - state.startedAt) / 1000);
@@ -2440,11 +2699,16 @@ function gameOver() {
   const seconds = (state.durationWhenOver % 60).toString().padStart(2, "0");
   finalTimerEl.textContent = `${minutes}:${seconds}`;
   finalKillsEl.textContent = state.kills.toString().padStart(3, "0");
+  if (finalLevelEl) {
+    finalLevelEl.textContent = state.level.toString().padStart(3, "0");
+  }
   overlay.classList.remove("overlay--hidden");
   if (sharePreview) sharePreview.style.display = "block";
   renderShareCard(minutes, seconds);
   manualPauseActive = false;
   infoPauseActive = false;
+  visibilityPauseActive = false;
+  pauseStartTime = null;
   state.paused = false;
   applyPauseState();
 }
@@ -2468,6 +2732,16 @@ function draw() {
   drawFog();
   if (isMobile) drawCanvasHUD();
   drawMinimap();
+  drawLevelTransitionOverlay();
+}
+
+function drawLevelTransitionOverlay() {
+  const alpha = Math.min(1, Math.max(0, levelTransition.progress));
+  if ((!levelTransition.active && alpha <= 0) || VIEWPORT.width === 0 || VIEWPORT.height === 0) return;
+  ctx.save();
+  ctx.fillStyle = `rgba(5, 5, 10, ${alpha})`;
+  ctx.fillRect(0, 0, VIEWPORT.width, VIEWPORT.height);
+  ctx.restore();
 }
 
 function drawMana(offsetX, offsetY) {
@@ -4277,6 +4551,24 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.fill();
   };
 
+  const drawFeetBack = () => {
+    ctx.fillStyle = bootColor;
+    ctx.beginPath();
+    ctx.ellipse(-1.25 + leftSwing * 0.45, robeBaseY - leftLift, 1.2, .75 + leftLift * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(1.05 + rightSwing * 0.45, robeBaseY - rightLift, 1.2, 0.75 + rightLift * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = soleColor;
+    ctx.beginPath();
+    ctx.ellipse(-1.25 + leftSwing * 0.45, robeBaseY + 0.18, 1.25, 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(1.05 + rightSwing * 0.45, robeBaseY + 0.18, 1.25, 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(-4, 10);
+  };
+
   const drawFeetSide = () => {
     ctx.fillStyle = bootColor;
     ctx.beginPath();
@@ -4640,10 +4932,12 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.restore();
     }
     ctx.restore();
+    drawFeetSide();
+    ctx.restore();
   };
 
   const drawBack = () => {
-    drawFeetFront();
+    drawFeetBack();
     ctx.restore();
     const traceBackShape = () => {
       ctx.beginPath();
@@ -6048,12 +6342,22 @@ function generateDungeon() {
   const grid = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(0));
   const rooms = [];
   const decorations = [];
-  const roomCount = 22;
+  const shortestSide = Math.min(MAP_COLS, MAP_ROWS);
+  const longestSide = Math.max(MAP_COLS, MAP_ROWS);
+  const minRoomSize = Math.max(4, Math.floor(shortestSide / 8));
+  const maxRoomSize = Math.max(minRoomSize + 2, Math.floor(shortestSide / 3.2));
+  const estimatedRoomArea = Math.pow((minRoomSize + maxRoomSize) / 2, 2);
+  const coverageTarget = 0.25 + Math.min(0.18, longestSide / 180);
+  const targetRooms = Math.round((MAP_COLS * MAP_ROWS * coverageTarget) / estimatedRoomArea);
+  const roomCount = Math.min(48, Math.max(12, targetRooms));
   for (let i = 0; i < roomCount; i += 1) {
-    const width = 6 + Math.floor(Math.random() * 6);
-    const height = 6 + Math.floor(Math.random() * 5);
-    const x = 2 + Math.floor(Math.random() * (MAP_COLS - width - 4));
-    const y = 2 + Math.floor(Math.random() * (MAP_ROWS - height - 4));
+    const width = minRoomSize + Math.floor(Math.random() * Math.max(1, maxRoomSize - minRoomSize + 1));
+    const height = minRoomSize + Math.floor(Math.random() * Math.max(1, maxRoomSize - minRoomSize + 1));
+    const padding = 2;
+    const availableCols = Math.max(1, MAP_COLS - width - padding * 2);
+    const availableRows = Math.max(1, MAP_ROWS - height - padding * 2);
+    const x = padding + Math.floor(Math.random() * availableCols);
+    const y = padding + Math.floor(Math.random() * availableRows);
     const room = {
       x,
       y,
@@ -6112,7 +6416,71 @@ function generateDungeon() {
   homeRoom.isHome = true;
 
   rooms.sort((a, b) => a.centerX + a.centerY - (b.centerX + b.centerY));
-  for (let i = 1; i < rooms.length; i += 1) connectRooms(grid, rooms[i - 1], rooms[i]);
+  for (let i = 1; i < rooms.length; i += 1) connectRooms(grid, rooms[i - 1], rooms[i], true);
+
+  const extraLinks = Math.max(4, Math.floor(rooms.length / 3));
+  for (let i = 0; i < extraLinks; i += 1) {
+    const a = rooms[Math.floor(Math.random() * rooms.length)];
+    let b = rooms[Math.floor(Math.random() * rooms.length)];
+    if (a === b) continue;
+    connectRooms(grid, a, b, false);
+  }
+
+  function carveMainCorridors() {
+    const minSide = Math.min(MAP_COLS, MAP_ROWS);
+    const baseThickness = minSide >= 60 ? 2 : 1;
+    const columns = new Set();
+    const rows = new Set();
+    const clampIndex = (value, max) => Math.max(1, Math.min(max - 2, value));
+    columns.add(clampIndex(Math.floor(MAP_COLS / 2), MAP_COLS));
+    rows.add(clampIndex(Math.floor(MAP_ROWS / 2), MAP_ROWS));
+    if (MAP_COLS >= 30) {
+      columns.add(clampIndex(Math.floor(MAP_COLS / 3), MAP_COLS));
+      columns.add(clampIndex(Math.floor((MAP_COLS * 2) / 3), MAP_COLS));
+    }
+    if (MAP_ROWS >= 30) {
+      rows.add(clampIndex(Math.floor(MAP_ROWS / 3), MAP_ROWS));
+      rows.add(clampIndex(Math.floor((MAP_ROWS * 2) / 3), MAP_ROWS));
+    }
+
+    const carveTile = (cx, cy) => {
+      if (cx <= 0 || cy <= 0 || cx >= MAP_COLS - 1 || cy >= MAP_ROWS - 1) return;
+      for (let dy = -baseThickness; dy <= baseThickness; dy += 1) {
+        for (let dx = -baseThickness; dx <= baseThickness; dx += 1) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx <= 0 || ny <= 0 || nx >= MAP_COLS - 1 || ny >= MAP_ROWS - 1) continue;
+          if (grid[ny][nx] === 0) grid[ny][nx] = 1;
+        }
+      }
+    };
+
+    const carveColumnSegments = (col) => {
+      rooms.forEach((room) => {
+        if (col < room.x - 1 || col > room.x + room.width) return;
+        const startRow = Math.max(1, room.y - 1);
+        const endRow = Math.min(MAP_ROWS - 2, room.y + room.height);
+        for (let row = startRow; row <= endRow; row += 1) {
+          carveTile(col, row);
+        }
+      });
+    };
+
+    const carveRowSegments = (row) => {
+      rooms.forEach((room) => {
+        if (row < room.y - 1 || row > room.y + room.height) return;
+        const startCol = Math.max(1, room.x - 1);
+        const endCol = Math.min(MAP_COLS - 2, room.x + room.width);
+        for (let col = startCol; col <= endCol; col += 1) {
+          carveTile(col, row);
+        }
+      });
+    };
+
+    columns.forEach((col) => carveColumnSegments(col));
+    rows.forEach((row) => carveRowSegments(row));
+  }
+  carveMainCorridors();
 
   rooms.forEach((room, index) => {
     if (room.isHome) return;
@@ -6429,16 +6797,30 @@ function carveRoom(grid, room, value) {
   }
 }
 
-function connectRooms(grid, roomA, roomB) {
+function connectRooms(grid, roomA, roomB, widen = true) {
   let x = roomA.centerX;
   let y = roomA.centerY;
+  const carveCell = (cx, cy) => {
+    if (cx <= 0 || cy <= 0 || cx >= MAP_COLS - 1 || cy >= MAP_ROWS - 1) return;
+    if (grid[cy][cx] === 0) grid[cy][cx] = 1;
+    if (!widen) return;
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx <= 0 || ny <= 0 || nx >= MAP_COLS - 1 || ny >= MAP_ROWS - 1) continue;
+        if (grid[ny][nx] === 0) grid[ny][nx] = 1;
+      }
+    }
+  };
+  carveCell(x, y);
   while (x !== roomB.centerX) {
-    grid[y][x] = 1;
     x += roomB.centerX > x ? 1 : -1;
+    carveCell(x, y);
   }
   while (y !== roomB.centerY) {
-    grid[y][x] = 1;
     y += roomB.centerY > y ? 1 : -1;
+    carveCell(x, y);
   }
 }
 
@@ -6469,22 +6851,81 @@ function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
   };
 }
 
-function stepEntity(entity, dirX, dirY, speed, deltaSeconds, shrink = 1) {
-  const baseAngle = Math.atan2(dirY, dirX);
-  const attempts = [0, Math.PI / 6, -Math.PI / 6, Math.PI / 3, -Math.PI / 3, Math.PI / 2, -Math.PI / 2, Math.PI];
-  for (let i = 0; i < attempts.length; i += 1) {
-    const angle = baseAngle + attempts[i];
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    const nextX = entity.x + dx * speed * deltaSeconds;
-    const nextY = entity.y + dy * speed * deltaSeconds;
-    if (isWalkable(nextX, entity.y, entity.radius, shrink) && isWalkable(entity.x, nextY, entity.radius, shrink)) {
+function moveEntityDistance(entity, dirX, dirY, distance) {
+  if (distance <= 0) return false;
+  const steps = Math.max(1, Math.ceil(distance / (CELL_SIZE * 0.18)));
+  const stepDist = distance / steps;
+  let moved = false;
+  for (let i = 0; i < steps; i += 1) {
+    const nextX = entity.x + dirX * stepDist;
+    const nextY = entity.y + dirY * stepDist;
+    let segmentMoved = false;
+    if (isWalkable(nextX, entity.y, entity.radius)) {
       entity.x = nextX;
+      segmentMoved = true;
+    }
+    if (isWalkable(entity.x, nextY, entity.radius)) {
       entity.y = nextY;
-      return true;
+      segmentMoved = true;
+    }
+    if (!segmentMoved) break;
+    moved = true;
+  }
+  return moved;
+}
+
+function stepEntity(entity, dirX, dirY, speed, deltaSeconds, shrink = 1) {
+  if (dirX === 0 && dirY === 0) return false;
+  const baseAngle = Math.atan2(dirY, dirX);
+  const offsets = [0, Math.PI / 12, -Math.PI / 12, Math.PI / 6, -Math.PI / 6, Math.PI / 4, -Math.PI / 4, Math.PI / 3, -Math.PI / 3, Math.PI / 2, -Math.PI / 2, Math.PI];
+  const step = speed * deltaSeconds;
+  const distances = [step, step * 0.75];
+  for (let d = 0; d < distances.length; d += 1) {
+    const distance = distances[d];
+    for (let i = 0; i < offsets.length; i += 1) {
+      const angle = baseAngle + offsets[i];
+      const dx = Math.cos(angle) * distance;
+      const dy = Math.sin(angle) * distance;
+      const nextX = entity.x + dx;
+      const nextY = entity.y + dy;
+      let segmentMoved = false;
+      if (isWalkable(nextX, entity.y, entity.radius, shrink)) {
+        entity.x = nextX;
+        segmentMoved = true;
+      }
+      if (isWalkable(entity.x, nextY, entity.radius, shrink)) {
+        entity.y = nextY;
+        segmentMoved = true;
+      }
+      if (segmentMoved) {
+        return true;
+      }
     }
   }
   return false;
+}
+
+function findDetourDirection(entity, targetX, targetY) {
+  const baseAngle = Math.atan2(targetY - entity.y, targetX - entity.x);
+  const offsets = [Math.PI / 4, -Math.PI / 4, Math.PI / 3, -Math.PI / 3, Math.PI / 2, -Math.PI / 2, (3 * Math.PI) / 4, -(3 * Math.PI) / 4];
+  let best = null;
+  const probeDistance = CELL_SIZE * 0.6;
+  for (let i = 0; i < offsets.length; i += 1) {
+    const angle = baseAngle + offsets[i];
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const probeX = entity.x + dx * probeDistance;
+    const probeY = entity.y + dy * probeDistance;
+    if (!isWalkable(probeX, probeY, entity.radius, entity.collisionShrink ?? 0.65)) continue;
+    const score = Math.hypot(targetX - probeX, targetY - probeY);
+    if (!best || score < best.score) {
+      best = { dx, dy, score };
+    }
+  }
+  if (best) {
+    return { x: best.dx, y: best.dy };
+  }
+  return { x: Math.cos(baseAngle), y: Math.sin(baseAngle) };
 }
 
 function getRoomAt(col, row) {
@@ -6555,29 +6996,54 @@ function renderShareCard(minutes, seconds) {
   if (!shareCanvas) return;
   const width = shareCanvas.width;
   const height = shareCanvas.height;
-  shareCtx.fillStyle = "#121212";
+  const backgroundGradient = shareCtx.createLinearGradient(0, 0, width, height);
+  backgroundGradient.addColorStop(0, "#0e0b18");
+  backgroundGradient.addColorStop(1, "#1b1024");
+  shareCtx.fillStyle = backgroundGradient;
   shareCtx.fillRect(0, 0, width, height);
-  const gradient = shareCtx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, "rgba(60,60,60,0.25)");
-  gradient.addColorStop(1, "rgba(18,18,18,0.85)");
-  shareCtx.fillStyle = gradient;
-  shareCtx.fillRect(14, 14, width - 28, height - 28);
-  shareCtx.strokeStyle = "#2d2d2d";
-  shareCtx.lineWidth = 4;
-  shareCtx.strokeRect(14, 14, width - 28, height - 28);
+
+  const frameGradient = shareCtx.createLinearGradient(0, 0, 0, height);
+  frameGradient.addColorStop(0, "rgba(255, 186, 72, 0.5)");
+  frameGradient.addColorStop(1, "rgba(146, 108, 255, 0.5)");
+  shareCtx.strokeStyle = frameGradient;
+  shareCtx.lineWidth = 6;
+  shareCtx.strokeRect(28, 28, width - 56, height - 56);
+
+  shareCtx.fillStyle = "rgba(255,255,255,0.06)";
+  shareCtx.fillRect(34, 34, width - 68, height - 68);
+
   shareCtx.fillStyle = "#f2f2f2";
-  shareCtx.font = "28px 'Press Start 2P', monospace";
+  shareCtx.font = "30px 'Press Start 2P', monospace";
   shareCtx.textAlign = "center";
-  shareCtx.fillText("DUNGEON RUN", width / 2, 92);
-  shareCtx.font = "18px 'Press Start 2P', monospace";
-  shareCtx.fillStyle = "#9d9d9d";
-  shareCtx.fillText(`Time ${minutes}:${seconds}`, width / 2, 160);
-  shareCtx.fillText(`Kills ${state.kills.toString().padStart(3, "0")}`, width / 2, 200);
-  shareCtx.fillText(`Mana ${player.mana.toString().padStart(3, "0")}`, width / 2, 240);
+  shareCtx.fillText("DUNGEON RUN", width / 2, 96);
+
+  shareCtx.font = "16px 'Press Start 2P', monospace";
+  shareCtx.fillStyle = "rgba(255,255,255,0.9)";
+  const scoreBoxY = 150;
+  const metrics = [
+    { label: "LEVEL", value: state.level.toString().padStart(3, "0") },
+    { label: "TIME", value: `${minutes}:${seconds}` },
+    { label: "KILLS", value: state.kills.toString().padStart(3, "0") },
+  ];
+
+  const boxWidth = width - 100;
+  const boxHeight = 180;
+  shareCtx.strokeStyle = "rgba(255,255,255,0.18)";
+  shareCtx.lineWidth = 3;
+  shareCtx.strokeRect((width - boxWidth) / 2, scoreBoxY, boxWidth, boxHeight);
+
+  metrics.forEach((metric, index) => {
+    const yOffset = scoreBoxY + 48 + index * 52;
+    shareCtx.fillStyle = "rgba(255,255,255,0.6)";
+    shareCtx.fillText(metric.label, width / 2, yOffset - 16);
+    shareCtx.fillStyle = "#fce98f";
+    shareCtx.fillText(metric.value, width / 2, yOffset + 8);
+  });
+
   shareCtx.font = "12px 'Press Start 2P', monospace";
-  shareCtx.fillStyle = "#666666";
-  shareCtx.fillText("#DungeonRun", width / 2, height - 48);
-  shareCtx.fillText("quickpixel.games", width / 2, height - 28);
+  shareCtx.fillStyle = "rgba(255,255,255,0.45)";
+  shareCtx.fillText("#DungeonRun", width / 2, height - 54);
+  shareCtx.fillText("quickpixel.games", width / 2, height - 34);
 }
 
 function downloadShareImage() {
@@ -6637,21 +7103,25 @@ function handleKeyDown(event) {
     case "ArrowUp":
     case "w":
     case "W":
+      if (!keys.up) registerMovementTap("up", 0, -1);
       keys.up = true;
       break;
     case "ArrowDown":
     case "s":
     case "S":
+      if (!keys.down) registerMovementTap("down", 0, 1);
       keys.down = true;
       break;
     case "ArrowLeft":
     case "a":
     case "A":
+      if (!keys.left) registerMovementTap("left", -1, 0);
       keys.left = true;
       break;
     case "ArrowRight":
     case "d":
     case "D":
+      if (!keys.right) registerMovementTap("right", 1, 0);
       keys.right = true;
       break;
     case "1":
@@ -6839,6 +7309,11 @@ if (infoOverlay) {
   });
 }
 
+document.addEventListener("visibilitychange", () => {
+  visibilityPauseActive = document.hidden;
+  applyPauseState();
+});
+
 if (pauseBtn) {
   pauseBtn.addEventListener("click", () => {
     if (state.over) return;
@@ -6863,3 +7338,8 @@ window.addEventListener("resize", () => {
 });
 
 init();
+const DOUBLE_TAP_WINDOW = 260;
+const PLAYER_DASH_COST = 2;
+const PLAYER_DASH_DISTANCE = CELL_SIZE * 0.625;
+const PLAYER_DASH_COOLDOWN = 520;
+const PLAYER_DASH_DURATION = 200;
