@@ -470,6 +470,17 @@ function startBackgroundMusic() {
     }
     const padTime = baseTime;
     playTone(261.63, beat * 2.5, padTime - ctx.currentTime, { type: "sawtooth", volume: 0.018, pan: 0 });
+    // replay the same lead with a small offset for layering
+    const offset = beat * 0.25;
+    for (let i = 0; i < pattern.length; i += 1) {
+      const t = baseTime + i * beat * 0.5 + offset;
+      const note = scale[pattern[(musicStep + i) % pattern.length]];
+      playTone(note, beat * 0.35, t - ctx.currentTime, { type: "triangle", volume: 0.03, pan: 0.12 });
+      if (i % 2 === 0) {
+        const b = bass[(musicStep + i) % bass.length];
+        playTone(b, beat * 0.5, t - ctx.currentTime, { type: "sine", volume: 0.02, pan: -0.12 });
+      }
+    }
     musicStep = (musicStep + 1) % pattern.length;
   };
   playMeasure();
