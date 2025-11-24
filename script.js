@@ -3655,6 +3655,15 @@ function castEmberstormSpell() {
     followPlayer: true,
     duration: 900,
     elapsed: 0,
+    sparks: Array.from({ length: 80 }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      dist: Math.random() * EMBER_CONE_RANGE * 0.9,
+      wobble: Math.random() * 22,
+      size: 2.5 + Math.random() * 3.5,
+      hue: 18 + Math.random() * 32,
+      flicker: 0.6 + Math.random() * 0.6,
+      streak: Math.random() * 0.6,
+    })),
   });
   if (hits > 0) {
     showAchievement(`Emberstorm ignited ${hits} foe${hits === 1 ? "" : "s"}!`);
@@ -3682,6 +3691,11 @@ function castVenomTideSpell() {
     duration: 1200,
     elapsed: 0,
     maxRadius: radius,
+    ripples: Array.from({ length: 5 }, () => ({
+      offset: Math.random() * 0.4,
+      thickness: 1.4 + Math.random() * 1.4,
+      wobble: Math.random() * 0.35,
+    })),
   });
   if (hits > 0) showAchievement(`Venom Tide tainted ${hits} foe${hits === 1 ? "" : "s"}!`);
 }
@@ -3702,6 +3716,8 @@ function castMeteorDropSpell() {
       duration: METEOR_DROP_DELAY + Math.random() * 280,
       elapsed: 0,
       radius: METEOR_DROP_BLAST_RADIUS,
+      tilt: (Math.random() - 0.5) * 0.6,
+      jitter: Math.random() * 10 + 6,
     });
   }
   spellEffects.push({
@@ -3709,6 +3725,11 @@ function castMeteorDropSpell() {
     followPlayer: true,
     duration: 900,
     elapsed: 0,
+    shards: Array.from({ length: 20 }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      len: 10 + Math.random() * 14,
+      speed: 0.7 + Math.random() * 0.5,
+    })),
   });
 }
 
@@ -3751,6 +3772,11 @@ function castShadowStepSpell() {
         elapsed: 0,
         start: { x: player.x, y: player.y },
         end: { x: nx, y: ny },
+        echoes: Array.from({ length: 6 }, () => ({
+          offset: Math.random(),
+          drift: (Math.random() - 0.5) * 12,
+          size: 10 + Math.random() * 8,
+        })),
       });
       player.x = nx;
       player.y = ny;
@@ -3775,6 +3801,11 @@ function castStonewallSpell() {
       radius: STONEWALL_RADIUS,
       duration: STONEWALL_DURATION,
       maxDuration: STONEWALL_DURATION,
+      rubble: Array.from({ length: 5 }, () => ({
+        ox: (Math.random() - 0.5) * STONEWALL_RADIUS * 0.8,
+        oy: (Math.random() - 0.5) * STONEWALL_RADIUS * 0.4,
+        size: 4 + Math.random() * 5,
+      })),
     });
   }
   spellEffects.push({
@@ -7625,22 +7656,27 @@ function drawSpellEffects(offsetX, offsetY) {
       }
       case "emberstorm": {
         const progress = effect.progress || 0;
-        const radius = EMBER_CONE_RANGE * 0.5;
-        const sparks = 40;
+        const radius = EMBER_CONE_RANGE * 0.6;
+        const sparks = effect.sparks || [];
         ctx.globalCompositeOperation = "lighter";
-        for (let i = 0; i < sparks; i += 1) {
-          const angle = (Math.PI / 2 - EMBER_CONE_ANGLE) + (EMBER_CONE_ANGLE * 2 * (i / sparks));
-          const dist = radius * (0.3 + Math.random() * 0.7);
-          const wobble = Math.sin(animationTime * 0.01 + i) * 12;
+        sparks.forEach((s, idx) => {
+          const angle = s.angle + Math.sin(animationTime * 0.003 + idx) * 0.14;
+          const dist = s.dist * (0.35 + 0.75 * (1 - progress));
+          const wobble = Math.sin(animationTime * 0.01 + idx) * s.wobble;
           const x = Math.cos(angle) * dist + wobble;
           const y = Math.sin(angle) * dist + wobble * 0.3;
-          const size = 3 + Math.random() * 2;
-          const alpha = 0.6 * (1 - progress);
-          ctx.fillStyle = `rgba(255,170,90,${alpha})`;
+          const size = s.size;
+          const alpha = 0.7 * (1 - progress) * s.flicker;
+          const color = `hsla(${s.hue},90%,60%,${alpha})`;
+          ctx.fillStyle = color;
           ctx.beginPath();
           ctx.ellipse(x, y, size, size * 0.6, angle, 0, Math.PI * 2);
           ctx.fill();
-        }
+          ctx.fillStyle = `rgba(255,240,220,${alpha * 0.5})`;
+          ctx.beginPath();
+          ctx.arc(x, y, size * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        });
         break;
       }
       case "venomtide": {
@@ -7656,34 +7692,49 @@ function drawSpellEffects(offsetX, offsetY) {
         ctx.beginPath();
         ctx.arc(0, 0, radius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "rgba(160,255,200,0.55)";
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        ctx.arc(0, 0, radius * 0.75, 0, Math.PI * 2);
-        ctx.stroke();
+        const ripples = effect.ripples || [];
+        ripples.forEach((r, idx) => {
+          const wobble = Math.sin(animationTime * 0.004 + idx) * r.wobble * radius;
+          ctx.strokeStyle = `rgba(160,255,200,${0.5 * (1 - progress)})`;
+          ctx.lineWidth = r.thickness;
+          ctx.beginPath();
+          ctx.arc(0, 0, radius * (0.35 + r.offset) + wobble * 0.02, 0, Math.PI * 2);
+          ctx.stroke();
+        });
         break;
       }
       case "meteordrop": {
-        const pulse = 1 + Math.sin(animationTime * 0.008) * 0.08;
+        const pulse = 1 + Math.sin(animationTime * 0.008) * 0.12;
+        const shards = effect.shards || [];
         ctx.globalCompositeOperation = "lighter";
         ctx.strokeStyle = "rgba(255,230,160,0.35)";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(0, 0, 24 * pulse, 0, Math.PI * 2);
         ctx.stroke();
+        shards.forEach((s, idx) => {
+          const wobble = Math.sin(animationTime * 0.01 + idx) * 4;
+          ctx.strokeStyle = `rgba(255,210,140,0.4)`;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(s.angle) * 4, Math.sin(s.angle) * 4);
+          ctx.lineTo(Math.cos(s.angle) * (4 + s.len + wobble), Math.sin(s.angle) * (4 + s.len + wobble));
+          ctx.stroke();
+        });
         break;
       }
       case "meteorfall": {
         const t = effect.progress || 0;
-        const trail = 30;
+        const trail = 36;
         ctx.globalCompositeOperation = "lighter";
         for (let i = 0; i < trail; i += 1) {
           const p = i / trail;
-          const y = -CELL_SIZE * (1 - p) * (1 - t);
+          const y = -CELL_SIZE * (1 - p) * (1 - t) * (1 + (effect.tilt || 0) * 0.5);
+          const sway = (Math.random() - 0.5) * (effect.jitter || 10);
           const alpha = 0.3 * (1 - p);
           ctx.fillStyle = `rgba(255,200,150,${alpha})`;
           ctx.beginPath();
-          ctx.ellipse(0, y, 6, 12, 0, 0, Math.PI * 2);
+          ctx.ellipse(sway, y, 6, 12, effect.tilt || 0, 0, Math.PI * 2);
           ctx.fill();
         }
         ctx.fillStyle = "rgba(255,240,200,0.9)";
@@ -7700,6 +7751,11 @@ function drawSpellEffects(offsetX, offsetY) {
         ctx.beginPath();
         ctx.arc(0, 0, r * (0.6 + p), 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = `rgba(255,255,255,${0.5 * (1 - p)})`;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * (0.4 + p), 0, Math.PI * 2);
+        ctx.stroke();
         break;
       }
       case "shadowstep": {
@@ -7711,8 +7767,18 @@ function drawSpellEffects(offsetX, offsetY) {
         const ex = end.x - offsetX;
         const ey = end.y - offsetY;
         ctx.globalCompositeOperation = "lighter";
-        ctx.strokeStyle = `rgba(200,200,255,${0.5 * (1 - p)})`;
-        ctx.lineWidth = 4;
+        const echoes = effect.echoes || [];
+        echoes.forEach((e, idx) => {
+          const t = Math.min(1, p + e.offset * 0.4);
+          const x = sx + (ex - sx) * t + (Math.random() - 0.5) * e.drift;
+          const y = sy + (ey - sy) * t + (Math.random() - 0.5) * e.drift * 0.6;
+          ctx.fillStyle = `rgba(200,200,255,${0.35 * (1 - p)})`;
+          ctx.beginPath();
+          ctx.ellipse(x, y, e.size * 0.5, e.size * 0.3, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.strokeStyle = `rgba(200,200,255,${0.35 * (1 - p)})`;
+        ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.moveTo(sx, sy);
         ctx.lineTo(ex, ey);
@@ -7727,6 +7793,23 @@ function drawSpellEffects(offsetX, offsetY) {
         ctx.beginPath();
         ctx.arc(0, 0, (effect.radius || STONEWALL_RING_RADIUS) * (0.7 + 0.3 * p), 0, Math.PI * 2);
         ctx.stroke();
+        const stones = stoneWalls || [];
+        stones.forEach((wall, idx) => {
+          const px = wall.x - offsetX;
+          const py = wall.y - offsetY;
+          const rubble = wall.rubble || [];
+          rubble.forEach((r) => {
+            ctx.fillStyle = `rgba(160,150,130,${0.7 * (1 - p)})`;
+            ctx.beginPath();
+            ctx.arc(px + r.ox, py + r.oy, r.size * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+          });
+          ctx.strokeStyle = `rgba(240,220,200,${0.5 * (1 - p)})`;
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.arc(px, py, wall.radius * 0.5, 0, Math.PI * 2);
+          ctx.stroke();
+        });
         break;
       }
       case "unlimeted-power": {
