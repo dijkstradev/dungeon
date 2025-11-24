@@ -6,6 +6,11 @@ const timerEl = document.querySelector(".timer");
 const killsEl = document.querySelector(".kills");
 const hungerEl = document.querySelector(".hunger");
 const levelEl = document.querySelector(".level");
+const mineralEl = document.querySelector(".mineral");
+const spellbookListEl = document.querySelector(".spellbook-list");
+const spellbookStartersEl = document.querySelector(".spellbook-starters");
+const spellSlotBuyBtn = document.getElementById("spell-slot-buy");
+const spellbarEl = document.querySelector(".spellbar");
 const overlay = document.getElementById("game-over");
 const finalTimerEl = document.querySelector(".final-timer");
 const finalKillsEl = document.querySelector(".final-kills");
@@ -23,13 +28,17 @@ const minimapCtx = minimapCanvas.getContext("2d");
 const achievementBanner = document.getElementById("achievement-banner");
 const pauseBtn = document.getElementById("pause-btn");
 const infoBtn = document.getElementById("info-btn");
+const spellbookBtn = document.getElementById("spellbook-btn");
 const infoOverlay = document.getElementById("info-overlay");
 const infoClose = document.getElementById("info-close");
+const spellbookOverlay = document.getElementById("spellbook-overlay");
+const spellbookClose = document.getElementById("spellbook-close");
 const startOverlay = document.getElementById("start-overlay");
 const startBtn = document.getElementById("start-btn");
-const spellSlotEls = Array.from(document.querySelectorAll(".spell-slot"));
+let spellSlotEls = Array.from(document.querySelectorAll(".spell-slot"));
 let initialStart = false;
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
+let timeWarpTimer = 0;
 
 const BASE_PLAYER_MAX_HEALTH = 100;
 const STARTING_MANA = 30;
@@ -59,9 +68,39 @@ const VIEWPORT = { width: canvas.width, height: canvas.height };
 const MAP_BASE_COLS = 30;
 const MAP_BASE_ROWS = 30;
 const MAP_GROWTH_STEP = 4;
+const MAP_LEVEL1_BONUS = 6;
 let MAP_COLS = MAP_BASE_COLS;
 let MAP_ROWS = MAP_BASE_ROWS;
 const CELL_SIZE = 96;
+const PATH_NODE_REACH_DISTANCE = CELL_SIZE * 0.42;
+const PATH_RECALC_INTERVAL = 320;
+const PATH_RETRY_INTERVAL = 640;
+const PATH_MAX_EXPANDED_NODES = 9000;
+const PICKUP_SNAP_RADIUS = 8;
+const ENEMY_HUNGER_MAX = 100;
+const ENEMY_HUNGER_TICK_RATE = 12;
+const ENEMY_HUNGER_HUNT_THRESHOLD = 55;
+const ENEMY_HUNGER_FEAST_VALUE = 85;
+const ENEMY_PREY_SENSE_RANGE = CELL_SIZE * 4.6;
+const ENEMY_LEVEL_HEALTH_SCALE = 0.16;
+const ENEMY_LEVEL_DAMAGE_SCALE = 0.1;
+const ENEMY_LEVEL_SPEED_SCALE = 0.05;
+const PREY_HUNGER_MAX = 100;
+const PREY_HUNGER_TICK_RATE = 9;
+const PREY_HUNGER_THRESHOLD = 60;
+const PREY_GRAZE_RANGE = CELL_SIZE * 5.5;
+const PREY_FEED_RATE = 20;
+const GRASS_PATCH_MIN = 1;
+const GRASS_PATCH_DENSITY = 0.05;
+const GRASS_NUTRIENT_BASE = 90;
+const GRASS_REGEN_RATE = 5;
+const MINERAL_MIN_PER_LEVEL = 5;
+const MINERAL_MAX_PER_LEVEL = 8;
+const MINERAL_RADIUS = 22;
+const MINERAL_HEALTH = 180;
+const MINING_RANGE = CELL_SIZE * 0.9;
+const MINING_RATE = 60;
+const SPELL_UNLOCK_COST = 20;
 const DECOR_TYPES = [
   "stalagmite_small",
   "stalagmite_tall",
@@ -95,6 +134,7 @@ const DECOR_ANIM_SETTINGS = {
   stalactite_small: { base: 0.82, alpha: 0.04, wobble: 0.8 },
   stalactite_tall: { base: 0.82, alpha: 0.05, wobble: 1.2 },
   moss_patch: { base: 0.84, alpha: 0.035, wobble: 0.5 },
+  grass_patch: { base: 0.9, alpha: 0.035, wobble: 0.18 },
   glowing_moss: {
     base: 0.9,
     alpha: 0.06,
@@ -290,11 +330,210 @@ const DECOR_CLUSTER_OFFSETS = [
   { x: 0, y: -2 },
 ];
 
+let mapGenerationProfile = {
+  opennessBonus: 0,
+  roomSizeBias: 0,
+  corridorRadius: 1,
+  roomPadding: 2,
+};
+
+let grassPatchIdCounter = 1;
+
+applyMapDimensionsForLevel(1);
+
 let dungeonData = generateDungeon();
 let dungeonGrid = dungeonData.grid;
 let dungeonRooms = dungeonData.rooms;
 let spawnPoint = dungeonData.spawn;
 let decorations = dungeonData.decorations;
+let navMesh = null;
+let grassPatches = dungeonData.grass || [];
+const mineralPockets = [];
+let mineralCount = 0;
+const unlockedSpells = new Set();
+let starterSpells = ["blast", "heal", "haste"];
+
+let audioCtx = null;
+let musicTimer = null;
+let musicStep = 0;
+
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  audioCtx.resume?.();
+  return audioCtx;
+}
+
+function playSfx(type = "click", options = {}) {
+  try {
+    const ctx = ensureAudioCtx();
+    const settings = {
+      attack: { tones: [620, 880], decay: 0.09, type: "triangle", vol: 0.24 },
+      pickup: { tones: [860, 1020], decay: 0.12, type: "sine", vol: 0.22 },
+      hurt: { tones: [220, 180], decay: 0.18, type: "sawtooth", vol: 0.2 },
+      spell: { tones: [520, 780], decay: 0.16, type: "sine", vol: 0.26 },
+      levelup: { tones: [520, 660, 880], decay: 0.3, type: "triangle", vol: 0.26 },
+      mine: { tones: [340, 420], decay: 0.12, type: "square", vol: 0.2 },
+      click: { tones: [420], decay: 0.08, type: "triangle", vol: 0.18 },
+    }[type] || { tones: [420], decay: 0.08, type: "triangle", vol: 0.18 };
+
+    const vol = options.volume ?? settings.vol;
+    const panNode = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + settings.decay);
+
+    if (panNode) {
+      gain.connect(panNode).connect(ctx.destination);
+      panNode.pan.value = options.pan ?? 0;
+    } else {
+      gain.connect(ctx.destination);
+    }
+
+    settings.tones.forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      osc.type = settings.type;
+      const detune = (options.detune ?? 0) + (index * 3 - 3);
+      osc.frequency.setValueAtTime(freq, now);
+      osc.detune.setValueAtTime(detune, now);
+      osc.connect(gain);
+      osc.start(now + index * 0.01);
+      osc.stop(now + settings.decay + 0.02 * index);
+    });
+
+    if (type === "spell") {
+      const noise = ctx.createBufferSource();
+      const buffer = ctx.createBuffer(1, ctx.sampleRate * settings.decay, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / data.length);
+      }
+      noise.buffer = buffer;
+      noise.connect(gain);
+      noise.start(now);
+      noise.stop(now + settings.decay);
+    }
+  } catch (error) {
+    // ignore audio errors
+  }
+}
+
+function playTone(freq, duration, startTime = 0, { type = "sine", volume = 0.12, pan = 0 } = {}) {
+  try {
+    const ctx = ensureAudioCtx();
+    const now = ctx.currentTime + startTime;
+    const gain = ctx.createGain();
+    const panNode = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, now);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    if (panNode) {
+      gain.connect(panNode).connect(ctx.destination);
+      panNode.pan.value = pan;
+    } else {
+      gain.connect(ctx.destination);
+    }
+    osc.connect(gain);
+    osc.start(now);
+    osc.stop(now + duration);
+  } catch (error) {
+    // ignore audio errors
+  }
+}
+
+function startBackgroundMusic() {
+  const ctx = ensureAudioCtx();
+  if (musicTimer) return;
+  const bpm = 84;
+  const beat = 60 / bpm;
+  const scale = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25];
+  const pattern = [0, 2, 4, 1, 3, 5, 4, 2];
+  const bass = [130.81, 146.83, 98.0, 110.0];
+  const playMeasure = () => {
+    const baseTime = ctx.currentTime + 0.02;
+    for (let i = 0; i < pattern.length; i += 1) {
+      const t = baseTime + i * beat * 0.5;
+      const note = scale[pattern[(musicStep + i) % pattern.length]];
+      playTone(note, beat * 0.35, t - ctx.currentTime, { type: "triangle", volume: 0.05, pan: -0.1 + Math.random() * 0.2 });
+      if (i % 2 === 0) {
+        const b = bass[(musicStep + i) % bass.length];
+        playTone(b, beat * 0.5, t - ctx.currentTime, { type: "sine", volume: 0.035, pan: 0 });
+      }
+    }
+    const padTime = baseTime;
+    playTone(261.63, beat * 2.5, padTime - ctx.currentTime, { type: "sawtooth", volume: 0.018, pan: 0 });
+    musicStep = (musicStep + 1) % pattern.length;
+  };
+  playMeasure();
+  musicTimer = setInterval(playMeasure, beat * 1000 * 4);
+}
+
+function loadMineralCount() {
+  try {
+    const stored = localStorage.getItem("dungeon_minerals");
+    const parsed = stored ? parseInt(stored, 10) : 0;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function loadUnlockedSpells() {
+  try {
+    const stored = localStorage.getItem("dungeon_unlocked_spells");
+    if (!stored) return;
+    const list = JSON.parse(stored);
+    if (Array.isArray(list)) {
+      list.forEach((id) => unlockedSpells.add(id));
+    }
+  } catch (error) {
+    // ignore
+  }
+}
+
+function saveUnlockedSpells() {
+  try {
+    localStorage.setItem("dungeon_unlocked_spells", JSON.stringify(Array.from(unlockedSpells)));
+  } catch (error) {
+    // ignore
+  }
+}
+
+function loadStarterSpells() {
+  try {
+    const stored = localStorage.getItem("dungeon_starter_spells");
+    if (!stored) return;
+    const list = JSON.parse(stored);
+    if (Array.isArray(list) && list.length >= 3) {
+      starterSpells = list;
+    }
+  } catch (error) {
+    // ignore
+  }
+}
+
+function saveStarterSpells() {
+  try {
+    localStorage.setItem("dungeon_starter_spells", JSON.stringify(starterSpells));
+  } catch (error) {
+    // ignore
+  }
+}
+
+function saveMineralCount() {
+  try {
+    localStorage.setItem("dungeon_minerals", mineralCount.toString());
+  } catch (error) {
+    // ignore storage errors
+  }
+}
+
+mineralCount = loadMineralCount();
+buildNavigationMesh();
 
 const player = {
   x: spawnPoint.x * CELL_SIZE + CELL_SIZE / 2,
@@ -312,6 +551,7 @@ const player = {
   maxMana: 10000000,
   frame: 0,
   animTimer: 0,
+  walkCycle: 0,
   facingX: 1,
   facingY: 0,
   shootingTimer: 0,
@@ -361,6 +601,7 @@ const state = {
 let manualPauseActive = false;
 let infoPauseActive = false;
 let visibilityPauseActive = false;
+let spellbookPauseActive = false;
 let achievementTimer = 0;
 let lastTimestamp = performance.now();
 let animationTime = 0;
@@ -374,7 +615,7 @@ const levelTransition = {
   pendingLevel: null,
 };
 
-const keys = { up: false, down: false, left: false, right: false };
+const keys = { up: false, down: false, left: false, right: false, mine: false };
 const keyTapTimers = { up: 0, down: 0, left: 0, right: 0 };
 
 const joystickState = {
@@ -541,21 +782,70 @@ const spellDrops = [];
 const SPELL_RESPAWN = 20000;
 let spellAccumulator = SPELL_RESPAWN;
 const SPELL_TYPES = [
-  { id: "blast", label: "Arc Blast", rune: "blast", color: "#f9d64c" },
-  { id: "heal", label: "Sanctify", rune: "heal", color: "#8ef9ff" },
-  { id: "haste", label: "Swiftstep", rune: "haste", color: "#b0ff6a" },
-  { id: "terrashield", label: "Terrashield", rune: "terrashield", color: "#8cff8a" },
+  { id: "blast", label: "Arc Blast", rune: "blast", color: "#f9d64c", desc: "Big burst, double staff range.", defaultUnlocked: true },
+  { id: "heal", label: "Sanctify", rune: "heal", color: "#8ef9ff", desc: "Full heal with radiant pulse.", defaultUnlocked: true },
+  { id: "haste", label: "Swiftstep", rune: "haste", color: "#b0ff6a", desc: "Speed boost for 15 seconds.", defaultUnlocked: true },
+  { id: "terrashield", label: "Terrashield", rune: "terrashield", color: "#8cff8a", desc: "Rooted shield, burst and armor.", defaultUnlocked: true },
+  { id: "flameorb", label: "Flame Orb", rune: "flameorb", color: "#ffb347", desc: "Homing fireballs explode on impact.", defaultUnlocked: false },
+  { id: "frostnova", label: "Frost Nova", rune: "frostnova", color: "#9edbff", desc: "Freeze burst slows foes; shards ricochet.", defaultUnlocked: false },
+  { id: "timewarp", label: "Time Warp", rune: "timewarp", color: "#e2c6ff", desc: "Slow enemies, speed yourself briefly.", defaultUnlocked: false },
+  { id: "chainlightning", label: "Chain Lightning", rune: "chainlightning", color: "#d0f7ff", desc: "Lightning jumps through nearby enemies.", defaultUnlocked: false },
+  { id: "emberstorm", label: "Emberstorm", rune: "emberstorm", color: "#ff8a5c", desc: "Cone of embers that ignite over time.", defaultUnlocked: false },
+  { id: "meteordrop", label: "Meteor Drop", rune: "meteordrop", color: "#ff6b6b", desc: "Small meteors rain in a circle.", defaultUnlocked: false },
+  { id: "venomtide", label: "Venom Tide", rune: "venomtide", color: "#7cf2a3", desc: "Poison wave that damages over time.", defaultUnlocked: false },
+  { id: "shadowstep", label: "Shadow Step", rune: "shadowstep", color: "#bca9ff", desc: "Blink forward, brief invisibility.", defaultUnlocked: false },
+  { id: "stonewall", label: "Stonewall", rune: "stonewall", color: "#c8b48a", desc: "Raise barriers that block foes.", defaultUnlocked: false },
+  { id: "galeslice", label: "Gale Slice", rune: "galeslice", color: "#b6f0ff", desc: "Piercing wind blades in a line.", defaultUnlocked: false },
+  { id: "radiantaegis", label: "Radiant Aegis", rune: "radiantaegis", color: "#ffe79f", desc: "Temporary absorb shield and heal.", defaultUnlocked: false },
+  { id: "wardingroots", label: "Warding Roots", rune: "wardingroots", color: "#9bd48a", desc: "Roots snare and damage nearby foes.", defaultUnlocked: false },
+  { id: "aurastride", label: "Aura Stride", rune: "aurastride", color: "#9ff2ff", desc: "Aura that speeds allies and harms foes.", defaultUnlocked: false },
+  { id: "starlance", label: "Star Lance", rune: "starlance", color: "#ffe4ff", desc: "Long-range piercing beam.", defaultUnlocked: false },
+  { id: "voidpulse", label: "Void Pulse", rune: "voidpulse", color: "#c28cff", desc: "Pull foes inward then blast.", defaultUnlocked: false },
+  { id: "mirrorveil", label: "Mirror Veil", rune: "mirrorveil", color: "#d6f0ff", desc: "Reflect a portion of incoming damage.", defaultUnlocked: false },
+  { id: "glacialspear", label: "Glacial Spear", rune: "glacialspear", color: "#b5e5ff", desc: "Piercing spear that slows on hit.", defaultUnlocked: false },
+  { id: "stormbarrier", label: "Storm Barrier", rune: "stormbarrier", color: "#9dc7ff", desc: "Orbiting bolts block and zap.", defaultUnlocked: false },
+  { id: "lifesurge", label: "Life Surge", rune: "lifesurge", color: "#9cffc7", desc: "Regen boost and cleanse debuffs.", defaultUnlocked: false },
+  { id: "arcburst", label: "Arc Burst", rune: "arcburst", color: "#ffd58f", desc: "Short-range arc shotgun blast.", defaultUnlocked: false },
+  { id: "mistveil", label: "Mist Veil", rune: "mistveil", color: "#c7e8ff", desc: "Become translucent, avoid one hit.", defaultUnlocked: false },
+  { id: "gravitywell", label: "Gravity Well", rune: "gravitywell", color: "#9ab0ff", desc: "Drop a slowing well that sucks foes.", defaultUnlocked: false },
+  { id: "emberdash", label: "Ember Dash", rune: "emberdash", color: "#ffb36b", desc: "Dash with fiery trail damage.", defaultUnlocked: false },
+  { id: "thornburst", label: "Thorn Burst", rune: "thornburst", color: "#9cd48c", desc: "Radial thorns that bleed enemies.", defaultUnlocked: false },
+  { id: "chronolock", label: "Chrono Lock", rune: "chronolock", color: "#e6d2ff", desc: "Freeze a cluster of foes briefly.", defaultUnlocked: false },
+  { id: "soulflare", label: "Soul Flare", rune: "soulflare", color: "#ff99d6", desc: "High-damage flare, self-hurts a bit.", defaultUnlocked: false },
+  { id: "wardbubble", label: "Ward Bubble", rune: "wardbubble", color: "#b8f3ff", desc: "Bubble reduces ranged damage briefly.", defaultUnlocked: false },
+  { id: "echoorb", label: "Echo Orb", rune: "echoorb", color: "#9fd4ff", desc: "Orb that bounces between enemies.", defaultUnlocked: false },
 ];
 nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
+
+function initializeSpellState() {
+  loadUnlockedSpells();
+  loadStarterSpells();
+  SPELL_TYPES.forEach((spell) => {
+    if (spell.defaultUnlocked !== false) {
+      unlockedSpells.add(spell.id);
+    }
+  });
+  saveUnlockedSpells();
+}
+
+initializeSpellState();
 const SPELL_SLOT_RUNES = {
   blast:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 4l2.8 6.8 6.8 2.8-6.8 2.8-2.8 6.8-2.8-6.8-6.8-2.8 6.8-2.8z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><circle cx="16" cy="16" r="3.6" fill="currentColor"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 5l4 5 6 4-6 4-4 5-4-5-6-4 6-4z" fill="currentColor" opacity="0.16"/><path d="M16 6.5l3 3.8 4.6 3-4.6 3-3 3.8-3-3.8-4.6-3 4.6-3z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="16" cy="16" r="3.1" fill="currentColor"/></svg>',
   heal:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6v20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M9.5 13c2.6-4.2 10.4-4.2 13 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 19c2.4 3.8 10.6 3.8 13.2 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="16" r="3" fill="currentColor"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6v20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M10 11c3-3 9-3 12 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M10 21c3 3 9 3 12 0" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="16" cy="16" r="3.2" fill="currentColor" opacity="0.2"/><circle cx="16" cy="16" r="2.2" fill="currentColor"/></svg>',
   haste:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M22 9c-7-4-14 1.5-11.5 7 2 4 6.8 4.4 10 2.3" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.5 13.5c1.8-1.4 5.5-1.4 7.3 0" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M12.2 20.8c3 2.6 8 2.8 10.6-0.4" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M11 11c-1.6 1.4-2.4 4.2-0.8 6.2" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 18c1-5 7-9 14-7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M10 21c3 2 8 2 12-1" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M11 13.5c1.6-1.2 5-1.2 6.6 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 10.5l8-2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="22.5" cy="11" r="2.4" fill="currentColor" opacity="0.2"/></svg>',
   terrashield:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V10z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><path d="M16 11v7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15l4 3 4-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6l8 4.5v6.5c0 5.5-4 10-8 11-4-1-8-5.5-8-11V10.5z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M16 12v6.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15.5l4 3.2 4-3.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="11" r="2.4" fill="currentColor" opacity="0.18"/></svg>',
+  flameorb:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6c3 2 6 5.5 6 9.2 0 3.8-3 7-6.5 7S9 19 9 15c0-2.8 2-6 7-9z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M14 14c1.6-1 3.2-0.6 4 0.4 0.8 1 0.6 2.6-0.6 3.8-1.2 1.2-3 1.4-4 0.2-0.8-1-0.8-2.8 0.6-4.4z" fill="currentColor" opacity="0.3"/></svg>',
+  frostnova:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 4v24M6 16h20M9 9l14 14M9 23l14-14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.9"/><circle cx="16" cy="16" r="3.4" fill="currentColor" opacity="0.25"/></svg>',
+  timewarp:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16 9v7l5 3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M10 12c-1 2-1 6 1.4 7.6 2 1.4 5 1.2 6.6-0.6" fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.6"/></svg>',
+  chainlightning:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M13 4l-3 9h5l-4 11 11-14h-6l4-6z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="11" cy="7" r="1.6" fill="currentColor" opacity="0.5"/><circle cx="21" cy="12" r="1.6" fill="currentColor" opacity="0.5"/></svg>',
 };
 const SPELL_BLAST_RANGE_MULTIPLIER = 2;
 const SPELL_BLAST_DAMAGE_MULTIPLIER = 1.75;
@@ -598,8 +888,11 @@ let titanAccumulator = 0;
 const meatDrops = [];
 const meatUsedPositions = new Set();
 const ENEMY_PREY_HEALTH_THRESHOLD = 0.3;
-const ENEMY_PREY_OPPORTUNITY_RANGE = CELL_SIZE * 4;
 const ENEMY_PREY_FEAST_HEAL = 60;
+const ENEMY_PREY_LOCK_DISTANCE = CELL_SIZE * 6;
+const ENEMY_PREY_LOCK_BREAK_DISTANCE = CELL_SIZE * 8.5;
+const ENEMY_PREY_LOCK_DURATION = 900;
+const ENEMY_PREY_DIR_SMOOTH = 0.82;
 const enemyAggroFlags = {};
 const ALWAYS_AGGRESSIVE_VARIANTS = new Set(["voidreaver", "doomclaw", "blightfang", "blightreaver", "titan"]);
 const PREY_TYPES = [
@@ -645,6 +938,7 @@ const PREY_PATROL_SPREAD = CELL_SIZE * 3.2;
 const PREY_MEAT_RESTORE = 4;
 const PREY_MEAT_COLOR = "#ffb97f";
 const preyList = [];
+let nextPreyId = 1;
 let companionSpeedBonus = 0;
 let companionEchoAccumulator = 0;
 let companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL;
@@ -676,16 +970,37 @@ function updateCanvasSize() {
 
 function applyMapDimensionsForLevel(level) {
   const growth = Math.max(0, level - 1) * MAP_GROWTH_STEP;
-  MAP_COLS = MAP_BASE_COLS + growth;
-  MAP_ROWS = MAP_BASE_ROWS + growth;
+  MAP_COLS = MAP_BASE_COLS + MAP_LEVEL1_BONUS + growth;
+  MAP_ROWS = MAP_BASE_ROWS + MAP_LEVEL1_BONUS + growth;
+  mapGenerationProfile = createMapGenerationProfile(level);
+}
+
+function createMapGenerationProfile(level) {
+  if (level === 1) {
+    return {
+      opennessBonus: 0.22,
+      roomSizeBias: 1.2,
+      corridorRadius: 2,
+      roomPadding: 1,
+    };
+  }
+  return {
+    opennessBonus: 0.08,
+    roomSizeBias: 0.4,
+    corridorRadius: 1,
+    roomPadding: 2,
+  };
 }
 
 function regenerateDungeonData() {
+  grassPatchIdCounter = 1;
   dungeonData = generateDungeon();
   dungeonGrid = dungeonData.grid;
   dungeonRooms = dungeonData.rooms;
   spawnPoint = dungeonData.spawn;
   decorations = dungeonData.decorations;
+  grassPatches = dungeonData.grass || [];
+  buildNavigationMesh();
 }
 
 function repositionPlayerAtSpawn() {
@@ -705,7 +1020,7 @@ function repositionPlayerAtSpawn() {
   });
 }
 
-function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false } = {}) {
+function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false, keepAggroFlags = false } = {}) {
   const preservedCompanions =
     keepCompanions && preyList.length
       ? preyList.filter((prey) => prey.bonded && prey.companion)
@@ -716,6 +1031,7 @@ function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false } 
   healthDrops.length = 0;
   meatDrops.length = 0;
   spellDrops.length = 0;
+  mineralPockets.length = 0;
   particles.length = 0;
   spellEffects.length = 0;
   damageNumbers.length = 0;
@@ -729,15 +1045,19 @@ function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false } 
     for (let i = 0; i < spellSlots.length; i += 1) {
       spellSlots[i] = null;
     }
-    SPELL_TYPES.forEach((spell, index) => {
-      if (index < spellSlots.length) {
-        spellSlots[index] = spell.id;
-      }
+    const unlockedList = SPELL_TYPES.filter((s) => unlockedSpells.has(s.id));
+    for (let i = 0; i < spellSlots.length; i += 1) {
+      const pick = starterSpells[i] && unlockedSpells.has(starterSpells[i])
+        ? starterSpells[i]
+        : unlockedList[i % Math.max(1, unlockedList.length)]?.id || null;
+      spellSlots[i] = pick || null;
+    }
+  }
+  if (!keepAggroFlags) {
+    Object.keys(enemyAggroFlags).forEach((key) => {
+      delete enemyAggroFlags[key];
     });
   }
-  Object.keys(enemyAggroFlags).forEach((key) => {
-    delete enemyAggroFlags[key];
-  });
   spawnAccumulator = 0;
   manaAccumulator = MANA_RESPAWN;
   healthAccumulator = HEALTH_RESPAWN;
@@ -775,6 +1095,7 @@ function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false } 
   if (!preyList.some((prey) => prey.variant === "lifebloom")) {
     spawnHomeLifebloom();
   }
+  spawnMineralPockets();
   for (let i = 0; i < Math.min(2, MAX_PREY); i += 1) {
     createPrey();
   }
@@ -826,10 +1147,11 @@ function resetGame() {
   player.baseSpeed = 240;
   player.speed = player.baseSpeed;
   player.speedBoostTimer = 0;
-  player.terrashieldTimer = 0;
-  player.terrashieldArmorTimer = 0;
-  player.terrashieldBurstPending = false;
-  player.gunLevel = 0;
+    player.terrashieldTimer = 0;
+    player.terrashieldArmorTimer = 0;
+    player.terrashieldBurstPending = false;
+    timeWarpTimer = 0;
+    player.gunLevel = 0;
   player.nextGunUpgrade = GUN_UPGRADE_FIRST;
   player.hunger = 0;
   player.hungerRate = BASE_HUNGER_RATE;
@@ -837,7 +1159,7 @@ function resetGame() {
   player.mutationStage = 0;
   player.lastFacingX = 0;
   player.lastFacingY = 1;
-  rebuildWorldState({ refillSpellSlots: true, keepCompanions: false });
+  rebuildWorldState({ refillSpellSlots: true, keepCompanions: false, keepAggroFlags: false });
   state.running = true;
   state.over = false;
   state.startedAt = performance.now();
@@ -867,8 +1189,10 @@ function startGame() {
   initialStart = true;
   if (startOverlay) {
     startOverlay.classList.add("start-overlay--hidden");
-    startOverlay.setAttribute("aria-hidden", "true");
+    startOverlay.removeAttribute("aria-hidden");
+    startOverlay.removeAttribute("inert");
   }
+  startBackgroundMusic();
   resetGame();
 }
 
@@ -887,6 +1211,7 @@ function beginLevelAdvance() {
   const completedLevel = state.level;
   const nextLevel = completedLevel + 1;
   showAchievement(`Level ${completedLevel} survived!`);
+  playSfx("levelup");
   state.levelTimer = 0;
   startLevelTransition(nextLevel);
 }
@@ -926,32 +1251,63 @@ function applyLevelAdvance(level) {
   applyMapDimensionsForLevel(level);
   regenerateDungeonData();
   repositionPlayerAtSpawn();
-  rebuildWorldState({ refillSpellSlots: false, keepCompanions: true });
+  rebuildWorldState({ refillSpellSlots: false, keepCompanions: true, keepAggroFlags: true });
 }
 
 function createEnemy() {
   const template = pickEnemyType();
-  const room = dungeonRooms[Math.floor(Math.random() * dungeonRooms.length)];
+  const levelFactor = Math.max(0, state.level - 1);
+  const healthMultiplier = 1 + levelFactor * ENEMY_LEVEL_HEALTH_SCALE;
+  const damageMultiplier = 1 + levelFactor * ENEMY_LEVEL_DAMAGE_SCALE;
+  const speedMultiplier = 1 + levelFactor * ENEMY_LEVEL_SPEED_SCALE;
+  const eligibleRooms = dungeonRooms.filter((room) => room.width > 4 && room.height > 4 && !room.isCorridor);
+  const roomPool = eligibleRooms.length > 0 ? eligibleRooms : dungeonRooms;
+  let spawnRoom = null;
+  let spawnX = null;
+  let spawnY = null;
+  let spawnTileX = null;
+  let spawnTileY = null;
   const padding = 2;
-  const tileX = room.x + padding + Math.floor(Math.random() * Math.max(1, room.width - padding * 2));
-  const tileY = room.y + padding + Math.floor(Math.random() * Math.max(1, room.height - padding * 2));
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const room = roomPool[Math.floor(Math.random() * roomPool.length)];
+    const tileX = room.x + padding + Math.floor(Math.random() * Math.max(1, room.width - padding * 2));
+    const tileY = room.y + padding + Math.floor(Math.random() * Math.max(1, room.height - padding * 2));
+    const x = tileX * CELL_SIZE + CELL_SIZE / 2;
+    const y = tileY * CELL_SIZE + CELL_SIZE / 2;
+    if (isWalkable(x, y, template.radius ?? 16, template.collisionShrink ?? 0.65)) {
+      spawnRoom = room;
+      spawnX = x;
+      spawnY = y;
+      spawnTileX = tileX;
+      spawnTileY = tileY;
+      break;
+    }
+  }
+  if (!spawnRoom) {
+    spawnRoom = roomPool[0];
+    spawnTileX = spawnPoint.x;
+    spawnTileY = spawnPoint.y;
+    spawnX = spawnTileX * CELL_SIZE + CELL_SIZE / 2;
+    spawnY = spawnTileY * CELL_SIZE + CELL_SIZE / 2;
+  }
   const speedGrowth = template.speedGrowth ?? 0.4;
+  const baseSpeed = template.speed * speedMultiplier;
   const enemy = {
-    x: tileX * CELL_SIZE + CELL_SIZE / 2,
-    y: tileY * CELL_SIZE + CELL_SIZE / 2,
+    x: spawnX,
+    y: spawnY,
     radius: template.radius ?? 16,
-    speed: template.speed + state.kills * speedGrowth,
-    health: template.health,
-    maxHealth: template.health,
+    speed: baseSpeed + state.kills * speedGrowth,
+    health: template.health * healthMultiplier,
+    maxHealth: template.health * healthMultiplier,
     damageCooldown: 0,
-    damage: template.damage,
+    damage: template.damage * damageMultiplier,
     variant: template.id,
     behaviour: template.behaviour,
     state: template.behaviour === "sentry" ? "patrol" : "hunt",
-    homeRoom: getRoomAt(tileX, tileY),
+    homeRoom: getRoomAt(Math.floor(spawnX / CELL_SIZE), Math.floor(spawnY / CELL_SIZE)),
     stuckTimer: 0,
-    prevX: tileX * CELL_SIZE + CELL_SIZE / 2,
-    prevY: tileY * CELL_SIZE + CELL_SIZE / 2,
+    prevX: spawnTileX * CELL_SIZE + CELL_SIZE / 2,
+    prevY: spawnTileY * CELL_SIZE + CELL_SIZE / 2,
     color: template.color,
     spawnTimer: ENEMY_SPAWN_FLASH,
     drawScale: template.drawScale,
@@ -972,6 +1328,17 @@ function createEnemy() {
     dashDirY: 0,
     huntDirX: 0,
     huntDirY: 0,
+    hunger: 0,
+    preyTargetId: null,
+    preyRetargetTimer: 0,
+    path: null,
+    pathIndex: 0,
+    pathTargetCol: null,
+    pathTargetRow: null,
+    pathCooldown: 0,
+    slowTimer: 0,
+    slowFactor: 1,
+    freezeTimer: 0,
   };
   if (template.lungeRange) {
     enemy.lungeRange = template.lungeRange;
@@ -997,6 +1364,10 @@ function createEnemy() {
 
 function createTitanEnemy() {
   const template = TITAN_TEMPLATE;
+  const levelFactor = Math.max(0, state.level - 1);
+  const healthMultiplier = 1 + levelFactor * ENEMY_LEVEL_HEALTH_SCALE;
+  const damageMultiplier = 1 + levelFactor * ENEMY_LEVEL_DAMAGE_SCALE;
+  const speedMultiplier = 1 + levelFactor * ENEMY_LEVEL_SPEED_SCALE;
   const playerTileX = Math.floor(player.x / CELL_SIZE);
   const playerTileY = Math.floor(player.y / CELL_SIZE);
   const sortedRooms = [...dungeonRooms].sort((a, b) => {
@@ -1014,11 +1385,11 @@ function createTitanEnemy() {
     x: tileX * CELL_SIZE + CELL_SIZE / 2,
     y: tileY * CELL_SIZE + CELL_SIZE / 2,
     radius: 26,
-    speed: template.speed + state.kills * 0.2,
-    health: template.health,
-    maxHealth: template.health,
+    speed: template.speed * speedMultiplier + state.kills * 0.2,
+    health: template.health * healthMultiplier,
+    maxHealth: template.health * healthMultiplier,
     damageCooldown: 0,
-    damage: template.damage,
+    damage: template.damage * damageMultiplier,
     variant: template.id,
     behaviour: template.behaviour,
     state: "hunt",
@@ -1049,6 +1420,17 @@ function createTitanEnemy() {
     attackTimer: 0,
     huntDirX: 0,
     huntDirY: 0,
+    hunger: 0,
+    preyTargetId: null,
+    preyRetargetTimer: 0,
+    path: null,
+    pathIndex: 0,
+    pathTargetCol: null,
+    pathTargetRow: null,
+    pathCooldown: 0,
+    slowTimer: 0,
+    slowFactor: 1,
+    freezeTimer: 0,
   };
   enemies.push(enemy);
   spawnParticles(enemy.x, enemy.y, template.color, 160, 26);
@@ -1124,9 +1506,11 @@ function createHealthDrop() {
 }
 
 function createSpellDrop() {
+  const unlockedList = SPELL_TYPES.filter((s) => unlockedSpells.has(s.id));
+  if (unlockedList.length === 0) return;
   const drop = generatePickupLocation(MIN_PICKUP_DISTANCE * 1.4);
-  const spell = SPELL_TYPES[nextSpellSpawnIndex % SPELL_TYPES.length];
-  nextSpellSpawnIndex = (nextSpellSpawnIndex + 1) % SPELL_TYPES.length;
+  const spell = unlockedList[nextSpellSpawnIndex % unlockedList.length];
+  nextSpellSpawnIndex = (nextSpellSpawnIndex + 1) % unlockedList.length;
   spellUsedPositions.add(drop.key);
   spellDrops.push({
     x: drop.x,
@@ -1141,11 +1525,37 @@ function createSpellDrop() {
   });
 }
 
+function spawnMineralPockets() {
+  const count = MINERAL_MIN_PER_LEVEL + Math.floor(Math.random() * Math.max(1, MINERAL_MAX_PER_LEVEL - MINERAL_MIN_PER_LEVEL + 1));
+  const usedKeys = new Set();
+  for (let i = 0; i < count; i += 1) {
+    const pocket = generateMineralLocation(usedKeys);
+    if (!pocket) continue;
+    usedKeys.add(pocket.key);
+    mineralPockets.push({
+      x: pocket.x,
+      y: pocket.y,
+      radius: MINERAL_RADIUS,
+      health: MINERAL_HEALTH,
+      maxHealth: MINERAL_HEALTH,
+      mining: false,
+      sparkles: Array.from({ length: 7 }, () => ({
+        offsetX: (Math.random() - 0.5) * 0.7,
+        baseY: -0.2 - Math.random() * 0.1,
+        size: 0.9 + Math.random() * 0.5,
+        speed: 0.25 + Math.random() * 0.2,
+        phase: Math.random(),
+      })),
+    });
+  }
+}
+
 function addPreyFromTemplate(template, spawnX, spawnY, overrides = {}) {
   const radius = template.radius ?? 14;
   const isCompanion =
     overrides.companion !== undefined ? overrides.companion : COMPANION_VARIANTS.has(template.id);
   const prey = {
+    id: nextPreyId,
     x: spawnX,
     y: spawnY,
     radius,
@@ -1168,7 +1578,12 @@ function addPreyFromTemplate(template, spawnX, spawnY, overrides = {}) {
     bondSpin: 0,
     effectTimer: 0,
     auraTimer: 0,
+    hunger: Math.random() * PREY_HUNGER_THRESHOLD * 0.6,
+    maxHunger: PREY_HUNGER_MAX,
+    hungerRate: PREY_HUNGER_TICK_RATE,
+    feedPatchId: null,
   };
+  nextPreyId += 1;
   Object.assign(prey, overrides);
   preyList.push(prey);
   return prey;
@@ -1400,37 +1815,49 @@ function scheduleMeatDrop(enemy, color, guaranteed = false, options = {}) {
 }
 
 function createMeatDrop(baseX, baseY, color = MEAT_COLOR, options = {}) {
-  let spawnX = baseX;
-  let spawnY = baseY;
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  const dropRadius = 18;
+  let spawnX = null;
+  let spawnY = null;
+  let spawnKey = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const angle = Math.random() * Math.PI * 2;
-    const distance = Math.random() * CELL_SIZE * 0.4;
+    const distance = Math.random() * CELL_SIZE * 0.5;
     const candidateX = baseX + Math.cos(angle) * distance;
     const candidateY = baseY + Math.sin(angle) * distance;
+    if (!isWalkable(candidateX, candidateY, dropRadius, 0.65)) continue;
     const col = Math.floor(candidateX / CELL_SIZE);
     const row = Math.floor(candidateY / CELL_SIZE);
-    if (getTile(col, row) === 0) continue;
     const key = `${col},${row}`;
     if (meatUsedPositions.has(key)) continue;
     spawnX = candidateX;
     spawnY = candidateY;
+    spawnKey = key;
     break;
   }
-  const finalCol = Math.floor(spawnX / CELL_SIZE);
-  const finalRow = Math.floor(spawnY / CELL_SIZE);
-  const finalKey = `${finalCol},${finalRow}`;
-  if (getTile(finalCol, finalRow) === 0) return;
-  if (meatUsedPositions.has(finalKey)) return;
-  meatUsedPositions.add(finalKey);
+  if (spawnX === null || spawnY === null) {
+    const fallback = snapTileToWalkable(
+      Math.floor(baseX / CELL_SIZE),
+      Math.floor(baseY / CELL_SIZE),
+      PICKUP_SNAP_RADIUS * 2
+    );
+    if (!fallback) return;
+    const fallbackKey = `${fallback.col},${fallback.row}`;
+    if (meatUsedPositions.has(fallbackKey)) return;
+    spawnX = fallback.col * CELL_SIZE + CELL_SIZE / 2;
+    spawnY = fallback.row * CELL_SIZE + CELL_SIZE / 2;
+    spawnKey = fallbackKey;
+  }
+  if (!spawnKey) return;
+  meatUsedPositions.add(spawnKey);
   meatDrops.push({
     x: spawnX,
     y: spawnY,
-    radius: 18,
+    radius: dropRadius,
     lifetime: MEAT_SPAWN_LIFETIME,
     bobPhase: Math.random() * Math.PI * 2,
     bobOffset: 0,
     color,
-    key: finalKey,
+    key: spawnKey,
     restore: options.restore ?? MEAT_HUNGER_RESTORE,
     mutates: options.mutates !== undefined ? options.mutates : true,
   });
@@ -1442,6 +1869,7 @@ function getSpellDefinition(spellId) {
 
 function updateSpellSlotsUI() {
   if (!spellSlotEls || spellSlotEls.length === 0) return;
+  ensureSpellSlotElements();
   spellSlotEls.forEach((slotEl, index) => {
     const spellId = spellSlots[index];
     const runeEl = slotEl.querySelector(".spell-slot__rune");
@@ -1494,11 +1922,99 @@ function updateHUD() {
   killsEl.textContent = state.kills.toString().padStart(3, "0");
   if (hungerEl) hungerEl.textContent = Math.floor(player.hunger).toString().padStart(3, " ");
   if (levelEl) levelEl.textContent = state.level.toString().padStart(3, "0");
+  if (mineralEl) mineralEl.textContent = mineralCount.toString().padStart(3, "0");
   const elapsed = state.over ? state.durationWhenOver : Math.floor((performance.now() - state.startedAt) / 1000);
   const minutes = Math.floor(elapsed / 60).toString().padStart(2, "0");
   const seconds = (elapsed % 60).toString().padStart(2, "0");
   timerEl.textContent = `${minutes}:${seconds}`;
   updateSpellSlotsUI();
+}
+
+function renderSpellbook() {
+  if (!spellbookListEl) return;
+  spellbookListEl.innerHTML = "";
+  renderStarterSelectors();
+  const unlockedList = new Set(unlockedSpells);
+  SPELL_TYPES.forEach((spell) => {
+    const li = document.createElement("li");
+    const locked = !unlockedList.has(spell.id);
+    li.className = `spellbook-item${locked ? " spellbook-item--locked" : ""}`;
+    li.innerHTML = `
+      <div class="spellbook-item__rune">${SPELL_SLOT_RUNES[spell.id] || ""}</div>
+      <div class="spellbook-item__meta">
+        <div class="spellbook-item__name">${spell.label}</div>
+        <div class="spellbook-item__status ${locked ? "spellbook-item__status--locked" : ""}">${locked ? "Locked" : "Unlocked"}</div>
+        <div class="spellbook-item__desc">${spell.desc || ""}</div>
+      </div>
+    `;
+    li.style.setProperty("--spell-color", spell.color || "#f9d64c");
+    if (locked) {
+      const btn = document.createElement("button");
+      btn.className = "spellbook-item__unlock";
+      btn.textContent = `Unlock (${SPELL_UNLOCK_COST} GOLD)`;
+      btn.disabled = mineralCount < SPELL_UNLOCK_COST;
+      btn.addEventListener("click", () => {
+        if (mineralCount < SPELL_UNLOCK_COST) return;
+        mineralCount -= SPELL_UNLOCK_COST;
+        unlockedSpells.add(spell.id);
+        saveMineralCount();
+        saveUnlockedSpells();
+        updateHUD();
+        renderSpellbook();
+      });
+      li.appendChild(btn);
+    }
+    spellbookListEl.appendChild(li);
+  });
+}
+
+function ensureSpellSlotElements() {
+  if (!spellbarEl) return;
+  while (spellSlotEls.length < spellSlots.length) {
+    const idx = spellSlotEls.length;
+    const slot = document.createElement("div");
+    slot.className = "spell-slot spell-slot--empty";
+    slot.dataset.slot = idx.toString();
+    slot.setAttribute("aria-label", `Spell slot ${idx + 1}: Empty`);
+    slot.innerHTML = `<span class="spell-slot__key">${idx + 1}</span><span class="spell-slot__rune" aria-hidden="true"></span>`;
+    slot.addEventListener("click", () => useSpell(idx));
+    spellbarEl.appendChild(slot);
+    spellSlotEls.push(slot);
+  }
+}
+
+function renderStarterSelectors() {
+  if (!spellbookStartersEl) return;
+  spellbookStartersEl.innerHTML = "";
+  ensureSpellSlotElements();
+  const unlockedList = SPELL_TYPES.filter((s) => unlockedSpells.has(s.id));
+  for (let i = 0; i < spellSlots.length; i += 1) {
+    if (!starterSpells[i] && unlockedList[0]) {
+      starterSpells[i] = unlockedList[0].id;
+    }
+    const row = document.createElement("div");
+    row.className = "starter-row";
+    const label = document.createElement("div");
+    label.className = "starter-label";
+    label.textContent = `Slot ${i + 1}`;
+    const select = document.createElement("select");
+    unlockedList.forEach((spell) => {
+      const opt = document.createElement("option");
+      opt.value = spell.id;
+      opt.textContent = spell.label;
+      select.appendChild(opt);
+    });
+    const current = starterSpells[i] && unlockedSpells.has(starterSpells[i]) ? starterSpells[i] : unlockedList[0]?.id;
+    select.value = current || "";
+    select.addEventListener("change", () => {
+      starterSpells[i] = select.value;
+      saveStarterSpells();
+      updateSpellSlotsUI();
+    });
+    row.appendChild(label);
+    row.appendChild(select);
+    spellbookStartersEl.appendChild(row);
+  }
 }
 
 function showAchievement(text) {
@@ -1523,6 +2039,7 @@ function eatMeat(amount = MEAT_HUNGER_RESTORE, mutates = true) {
       showAchievement(`You feel different... (${milestoneMeals} meals)`);
     }
   }
+  playSfx("pickup");
   updateHUD();
 }
 
@@ -1535,7 +2052,7 @@ function updatePauseButton() {
 }
 
 function applyPauseState() {
-  const shouldPause = manualPauseActive || infoPauseActive || visibilityPauseActive;
+  const shouldPause = manualPauseActive || infoPauseActive || visibilityPauseActive || spellbookPauseActive;
   const changed = state.paused !== shouldPause;
   state.paused = shouldPause;
   updatePauseButton();
@@ -1619,6 +2136,12 @@ function update(delta) {
   } else if (player.terrashieldBurstPending) {
     triggerTerrashieldBurst();
   }
+  if (timeWarpTimer > 0) {
+    timeWarpTimer = Math.max(0, timeWarpTimer - delta);
+  }
+  if (timeWarpTimer > 0) {
+    timeWarpTimer = Math.max(0, timeWarpTimer - delta);
+  }
   if (player.terrashieldArmorTimer > 0) {
     player.terrashieldArmorTimer = Math.max(0, player.terrashieldArmorTimer - delta);
   }
@@ -1635,7 +2158,8 @@ function update(delta) {
       player.speed = player.baseSpeed + currentCompanionBonus;
     }
   } else {
-    player.speed = player.baseSpeed + currentCompanionBonus;
+    const warpBonus = timeWarpTimer > 0 ? 1.25 : 1;
+    player.speed = player.baseSpeed * warpBonus + currentCompanionBonus;
     hasteTrailAccumulator = 0;
   }
   const deltaSeconds = delta / 1000;
@@ -1759,6 +2283,8 @@ function update(delta) {
     }
     player.satchelSwing = Math.min(1, player.satchelSwing + delta / 260);
     player.satchelPhase = (player.satchelPhase + delta * 0.012 * (player.speed / player.baseSpeed)) % (Math.PI * 2);
+    const warpRate = timeWarpTimer > 0 ? 1.35 : 1;
+    player.walkCycle = ((player.walkCycle || 0) + delta * warpRate) % 2000;
     player.footstepTimer -= delta;
     if (player.footstepTimer <= 0) {
       spawnFootstepMark(player.footstepToggle);
@@ -1767,6 +2293,7 @@ function update(delta) {
     }
   } else {
     player.satchelSwing = Math.max(0, player.satchelSwing - delta / 320);
+    player.walkCycle = Math.max(0, (player.walkCycle || 0) - delta * 0.35);
     if (player.idleState === "none") {
       player.idleTimer += delta;
       if (player.idleTimer >= 5200) {
@@ -1843,7 +2370,9 @@ function update(delta) {
     companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL * intervalMultiplier;
   }
 
+  updateGrass(delta);
   updatePrey(delta);
+  updateMineralPockets(delta);
 
   enemies.forEach((enemy) => {
     const dxPlayer = player.x - enemy.x;
@@ -1851,15 +2380,46 @@ function update(delta) {
     const distanceToPlayer = Math.hypot(dxPlayer, dyPlayer) || 1;
     const isTitan = enemy.behaviour === "titan";
     const hasLunge = enemy.lungeRange !== undefined && enemy.lungeCooldownBase;
-    const nearestPreyInfo = getNearestPrey(enemy.x, enemy.y);
+    enemy.hunger = Math.min(ENEMY_HUNGER_MAX, (enemy.hunger || 0) + ENEMY_HUNGER_TICK_RATE * deltaSeconds);
+    const hungerLevel = enemy.hunger || 0;
     const healthRatio = enemy.health / enemy.maxHealth;
     const variantAggro =
       ALWAYS_AGGRESSIVE_VARIANTS.has(enemy.variant) || enemyAggroFlags[enemy.variant] || isTitan;
     const provoked = enemy.health < enemy.maxHealth;
     const shouldAggroPlayer = variantAggro || provoked;
+    const canConsiderPrey =
+      hungerLevel >= ENEMY_HUNGER_HUNT_THRESHOLD || healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD;
+    const senseRange = isTitan ? ENEMY_PREY_SENSE_RANGE * 1.2 : ENEMY_PREY_SENSE_RANGE;
+    let nearbyPreyInfo = null;
+    if (canConsiderPrey) {
+      nearbyPreyInfo = findPreyForEnemy(enemy, senseRange);
+    }
+    let lockedPrey = null;
+    if (canConsiderPrey && enemy.preyTargetId) {
+      lockedPrey = getPreyById(enemy.preyTargetId);
+      if (lockedPrey) {
+        const lockDistance = Math.hypot(lockedPrey.x - enemy.x, lockedPrey.y - enemy.y);
+        if (
+          lockDistance > ENEMY_PREY_LOCK_BREAK_DISTANCE ||
+          !hasLineOfSight(enemy.x, enemy.y, lockedPrey.x, lockedPrey.y)
+        ) {
+          lockedPrey = null;
+          enemy.preyTargetId = null;
+          enemy.preyRetargetTimer = 0;
+        }
+      } else {
+        enemy.preyTargetId = null;
+      }
+    } else if (!canConsiderPrey) {
+      enemy.preyTargetId = null;
+    }
 
     if (enemy.attackTimer === undefined) enemy.attackTimer = 0;
     enemy.attackTimer = Math.max(0, (enemy.attackTimer || 0) - delta);
+    if (enemy.pathCooldown === undefined) enemy.pathCooldown = 0;
+    enemy.pathCooldown = Math.max(0, enemy.pathCooldown - delta);
+    if (enemy.preyRetargetTimer === undefined) enemy.preyRetargetTimer = 0;
+    enemy.preyRetargetTimer = Math.max(0, enemy.preyRetargetTimer - delta);
 
     let targetType = null;
     let targetEntity = null;
@@ -1868,26 +2428,41 @@ function update(delta) {
     let distance = Infinity;
     let hasTargetSight = false;
 
-    if (shouldAggroPlayer) {
+    const hasPlayerSight = hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
+    if (shouldAggroPlayer && hasPlayerSight) {
       targetType = "player";
       targetEntity = player;
       targetDx = dxPlayer;
       targetDy = dyPlayer;
       distance = distanceToPlayer;
-      hasTargetSight = hasLineOfSight(enemy.x, enemy.y, player.x, player.y);
+      hasTargetSight = true;
     }
 
-    if (nearestPreyInfo) {
-      const preyDistance = nearestPreyInfo.distance;
-      const hungry = healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD;
-      const opportunistic = preyDistance <= ENEMY_PREY_OPPORTUNITY_RANGE && !shouldAggroPlayer;
-      if ((!shouldAggroPlayer || hungry) || opportunistic) {
+    if (canConsiderPrey && (nearbyPreyInfo || lockedPrey)) {
+      let preyCandidate = lockedPrey;
+      let preyDistance = preyCandidate ? Math.hypot(preyCandidate.x - enemy.x, preyCandidate.y - enemy.y) : Infinity;
+      const canSwitchTarget = enemy.preyRetargetTimer <= 0 || !preyCandidate;
+      if (nearbyPreyInfo) {
+        const nearerPrey = nearbyPreyInfo.prey;
+        const nearerDistance = nearbyPreyInfo.distance;
+        const shouldSwitch =
+          !preyCandidate ||
+          (canSwitchTarget &&
+            (nearerDistance + CELL_SIZE * 0.35 < preyDistance || preyDistance > ENEMY_PREY_LOCK_DISTANCE));
+        if (shouldSwitch) {
+          preyCandidate = nearerPrey;
+          preyDistance = nearerDistance;
+          enemy.preyTargetId = nearerPrey.id;
+          enemy.preyRetargetTimer = ENEMY_PREY_LOCK_DURATION;
+        }
+      }
+      if (preyCandidate) {
         targetType = "prey";
-        targetEntity = nearestPreyInfo.prey;
-        targetDx = targetEntity.x - enemy.x;
-        targetDy = targetEntity.y - enemy.y;
+        targetEntity = preyCandidate;
+        targetDx = preyCandidate.x - enemy.x;
+        targetDy = preyCandidate.y - enemy.y;
         distance = preyDistance || 1;
-        hasTargetSight = hasLineOfSight(enemy.x, enemy.y, targetEntity.x, targetEntity.y);
+        hasTargetSight = true;
       }
     }
 
@@ -1973,8 +2548,40 @@ function update(delta) {
     if (targetEntity) {
       let dirX = targetDx / (distance || 1);
       let dirY = targetDy / (distance || 1);
-      if ((targetType === "prey" && targetEntity) || (!shouldAggroPlayer && targetType === "prey")) {
-        const smoothing = 0.65;
+      const chasingTarget = targetType === "player" || targetType === "prey";
+      let usingPath = false;
+      if (chasingTarget) {
+        const needsPathAssist = !hasTargetSight || enemy.stuckTimer > STUCK_THRESHOLD * 0.6;
+        if (needsPathAssist) {
+          const targetCol = Math.floor(targetEntity.x / CELL_SIZE);
+          const targetRow = Math.floor(targetEntity.y / CELL_SIZE);
+          const pathInvalid =
+            !enemy.path ||
+            enemy.pathTargetCol !== targetCol ||
+            enemy.pathTargetRow !== targetRow ||
+            enemy.pathIndex >= enemy.path.length;
+          const forceRefresh = enemy.stuckTimer > STUCK_THRESHOLD;
+          if ((pathInvalid && enemy.pathCooldown === 0) || forceRefresh) {
+            updateEnemyPath(enemy, targetEntity.x, targetEntity.y, forceRefresh);
+          }
+          const waypoint = getEnemyPathWaypoint(enemy);
+          if (waypoint) {
+            const wpDx = waypoint.x - enemy.x;
+            const wpDy = waypoint.y - enemy.y;
+            const len = Math.hypot(wpDx, wpDy) || 1;
+            dirX = wpDx / len;
+            dirY = wpDy / len;
+            usingPath = true;
+          }
+        } else if (enemy.path) {
+          clearEnemyPath(enemy);
+        }
+      }
+      if (usingPath) {
+        enemy.huntDirX = dirX;
+        enemy.huntDirY = dirY;
+      } else if ((targetType === "prey" && targetEntity) || (!shouldAggroPlayer && targetType === "prey")) {
+        const smoothing = ENEMY_PREY_DIR_SMOOTH;
         const prevX = enemy.huntDirX ?? dirX;
         const prevY = enemy.huntDirY ?? dirY;
         const blendedX = prevX * smoothing + dirX * (1 - smoothing);
@@ -1988,12 +2595,20 @@ function update(delta) {
         enemy.huntDirX = dirX;
         enemy.huntDirY = dirY;
       }
-      if ((targetType === "player" || targetType === "prey") && !hasTargetSight) {
+      if (!usingPath && chasingTarget && !hasTargetSight) {
         const detour = findDetourDirection(enemy, targetEntity.x, targetEntity.y);
         dirX = detour.x;
         dirY = detour.y;
       }
       let moveSpeed = enemy.speed;
+      let slowMultiplier = 1;
+      if (enemy.freezeTimer && enemy.freezeTimer > 0) {
+        slowMultiplier = 0;
+      } else if (enemy.slowTimer && enemy.slowTimer > 0) {
+        slowMultiplier = Math.max(0.2, enemy.slowFactor || 0.5);
+      }
+      enemy.slowTimer = Math.max(0, (enemy.slowTimer || 0) - delta);
+      enemy.freezeTimer = Math.max(0, (enemy.freezeTimer || 0) - delta);
       let shrink = enemy.collisionShrink ?? (isTitan ? 0.6 : 0.65);
       if (enemy.isLunging) {
         moveSpeed = enemy.speed * (enemy.lungeSpeedMultiplier || 1.8);
@@ -2016,7 +2631,7 @@ function update(delta) {
       } else if (!shouldAggroPlayer && targetType !== "prey") {
         moveSpeed = enemy.speed * 0.75;
       }
-      moved = stepEntity(enemy, dirX, dirY, moveSpeed, deltaSeconds, shrink);
+      moved = stepEntity(enemy, dirX, dirY, moveSpeed * slowMultiplier, deltaSeconds, shrink);
 
       if (
         enemy.behaviour === "sentry" &&
@@ -2037,6 +2652,10 @@ function update(delta) {
     if (!moved) {
       enemy.stuckTimer += delta;
       if (enemy.stuckTimer > STUCK_THRESHOLD) {
+        if (targetEntity && (targetType === "player" || targetType === "prey")) {
+          enemy.pathCooldown = 0;
+          updateEnemyPath(enemy, targetEntity.x, targetEntity.y, true);
+        }
         const randomAngle = Math.random() * Math.PI * 2;
         stepEntity(enemy, Math.cos(randomAngle), Math.sin(randomAngle), enemy.speed, deltaSeconds, 0.55);
         enemy.stuckTimer = 0;
@@ -2061,6 +2680,34 @@ function update(delta) {
     attemptConsumePrey(enemy);
 
     enemy.damageCooldown = Math.max(0, enemy.damageCooldown - delta);
+    if (enemy.damageCooldown === 0) {
+      let hitCompanion = null;
+      for (let p = 0; p < preyList.length; p += 1) {
+        const prey = preyList[p];
+        if (!prey.bonded || !prey.companion) continue;
+        const compDist = Math.hypot(prey.x - enemy.x, prey.y - enemy.y);
+        if (compDist < enemy.radius + prey.radius + 4) {
+          hitCompanion = { prey, index: p };
+          break;
+        }
+      }
+      if (hitCompanion) {
+        const incoming = enemy.damage;
+        hitCompanion.prey.health -= incoming;
+        spawnDamageNumber(
+          hitCompanion.prey.x,
+          hitCompanion.prey.y - hitCompanion.prey.radius * 1.2,
+          incoming,
+          "player"
+        );
+        enemy.damageCooldown = 700;
+        enemy.attackTimer = Math.max(enemy.attackTimer || 0, 260);
+        spawnParticles(hitCompanion.prey.x, hitCompanion.prey.y, hitCompanion.prey.color || "#f45d5d", 90, 10);
+        if (hitCompanion.prey.health <= 0) {
+          preyList.splice(hitCompanion.index, 1);
+        }
+      }
+    }
     if (
       distanceToPlayer < enemy.radius + player.radius + 4 &&
       enemy.damageCooldown === 0 &&
@@ -2075,6 +2722,7 @@ function update(delta) {
       enemy.damageCooldown = 700;
       enemy.attackTimer = Math.max(enemy.attackTimer || 0, 260);
       spawnParticles(player.x, player.y, "#f45d5d");
+      playSfx("hurt");
       if (player.health <= 0) gameOver();
     }
   });
@@ -2111,6 +2759,7 @@ function update(delta) {
     if (distance < drop.radius + player.radius) {
       player.mana = Math.min(player.maxMana, player.mana + 5);
       spawnParticles(drop.x, drop.y, "#62f2ff");
+      playSfx("pickup");
       manaUsedPositions.delete(drop.key);
       manaDrops.splice(i, 1);
     }
@@ -2136,6 +2785,7 @@ function update(delta) {
     if (distance < drop.radius + player.radius) {
       player.health = Math.min(player.maxHealth, player.health + HEALTH_AMOUNT);
       spawnParticles(drop.x, drop.y, "#66df81");
+      playSfx("pickup");
       healthUsedPositions.delete(drop.key);
       healthDrops.splice(i, 1);
     }
@@ -2162,6 +2812,7 @@ function update(delta) {
         const sparkColor = spellDef.color || "#f9d64c";
         spawnParticles(drop.x, drop.y, sparkColor, 220, 20);
         showAchievement(`Spell prepped: ${spellDef.label}`);
+        playSfx("spell");
       }
     }
   }
@@ -2181,6 +2832,7 @@ function update(delta) {
     if (distance < drop.radius + player.radius) {
       eatMeat(drop.restore || MEAT_HUNGER_RESTORE, drop.mutates !== false);
       spawnParticles(drop.x, drop.y, drop.color || MEAT_COLOR, 120, 18);
+      playSfx("pickup");
       meatUsedPositions.delete(drop.key);
       meatDrops.splice(i, 1);
     }
@@ -2200,6 +2852,42 @@ function update(delta) {
   for (let i = spellEffects.length - 1; i >= 0; i -= 1) {
     const effect = spellEffects[i];
     effect.elapsed = (effect.elapsed || 0) + delta;
+    if (effect.type === "flameorb") {
+      const dt = delta / 1000;
+      if (effect.homing) {
+        const target = enemies
+          .filter((e) => hasLineOfSight(player.x, player.y, e.x, e.y))
+          .map((e) => ({ e, d: Math.hypot(e.x - effect.x, e.y - effect.y) }))
+          .sort((a, b) => a.d - b.d)[0]?.e;
+        if (target) {
+          const desiredAngle = Math.atan2(target.y - effect.y, target.x - effect.x);
+          const currentAngle = Math.atan2(effect.vy || 0, effect.vx || 1e-5);
+          const diff = ((desiredAngle - currentAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+          const turn = (effect.turnRate || 6) * dt;
+          const newAngle = currentAngle + Math.max(-turn, Math.min(turn, diff));
+          const speed = Math.hypot(effect.vx || 0, effect.vy || 0);
+          effect.vx = Math.cos(newAngle) * speed;
+          effect.vy = Math.sin(newAngle) * speed;
+        }
+      }
+      const nextX = effect.x + (effect.vx || 0) * dt;
+      const nextY = effect.y + (effect.vy || 0) * dt;
+      const blockedX = !isWalkable(nextX, effect.y, effect.radius || 12, 0.8);
+      const blockedY = !isWalkable(effect.x, nextY, effect.radius || 12, 0.8);
+      if (blockedX || blockedY) {
+        triggerFlameOrbExplosion(effect.x, effect.y, effect.damage);
+        spellEffects.splice(i, 1);
+        continue;
+      }
+      effect.x = nextX;
+      effect.y = nextY;
+      const hit = enemies.find((e) => Math.hypot(e.x - effect.x, e.y - effect.y) < (e.radius || 16) + (effect.radius || 12));
+      if (hit) {
+        triggerFlameOrbExplosion(effect.x, effect.y, effect.damage);
+        spellEffects.splice(i, 1);
+        continue;
+      }
+    }
     if (effect.duration) {
       effect.progress = Math.min(effect.elapsed / effect.duration, 1);
       if (effect.elapsed >= effect.duration) {
@@ -2223,6 +2911,43 @@ function update(delta) {
   updateHUD();
 }
 
+function updateMineralPockets(delta) {
+  const deltaSeconds = delta / 1000;
+  if (!mineralPockets.length) return;
+  const isMining = keys.mine && !state.paused && state.running && initialStart;
+  mineralPockets.forEach((pocket) => {
+    if (!pocket.mining) pocket.mining = false;
+    pocket.mining = false;
+    if (isMining) {
+      const distance = Math.hypot(player.x - pocket.x, player.y - pocket.y);
+      if (distance < MINING_RANGE) {
+        pocket.mining = true;
+        pocket.health = Math.max(0, pocket.health - MINING_RATE * deltaSeconds);
+      }
+    }
+  });
+  for (let i = mineralPockets.length - 1; i >= 0; i -= 1) {
+    if (mineralPockets[i].health <= 0) {
+      mineralPockets.splice(i, 1);
+      mineralCount += 1;
+      saveMineralCount();
+      spawnParticles(player.x, player.y, "#c9f05f", 140, 14);
+      playSfx("mine");
+      updateHUD();
+    }
+  }
+}
+
+function updateGrass(delta) {
+  if (!grassPatches || grassPatches.length === 0) return;
+  const deltaSeconds = delta / 1000;
+  grassPatches.forEach((patch) => {
+    if (patch.nutrients < patch.maxNutrients) {
+      patch.nutrients = Math.min(patch.maxNutrients, patch.nutrients + patch.regenRate * deltaSeconds);
+    }
+  });
+}
+
 function updatePrey(delta) {
   const deltaSeconds = delta / 1000;
   let pendingSpeedBonus = 0;
@@ -2232,6 +2957,10 @@ function updatePrey(delta) {
     if (prey.spawnTimer) {
       prey.spawnTimer = Math.max(0, prey.spawnTimer - delta);
     }
+    const hungerRate = prey.hungerRate || PREY_HUNGER_TICK_RATE;
+    prey.hunger = Math.min(prey.maxHunger, (prey.hunger || 0) + hungerRate * deltaSeconds);
+    const isPreyHungry = prey.hunger >= PREY_HUNGER_THRESHOLD;
+
     let avoidX = 0;
     let avoidY = 0;
     const playerDist = Math.hypot(player.x - prey.x, player.y - prey.y);
@@ -2241,10 +2970,14 @@ function updatePrey(delta) {
       avoidX += (prey.x - player.x) * inv;
       avoidY += (prey.y - player.y) * inv;
     }
+    let hungryThreat = false;
     if (!prey.bonded) {
       enemies.forEach((enemy) => {
+        const enemyHunger = enemy.hunger || 0;
+        if (enemyHunger < ENEMY_HUNGER_HUNT_THRESHOLD) return;
         const dist = Math.hypot(enemy.x - prey.x, enemy.y - prey.y);
         if (dist < PREY_FLEE_RANGE * 1.15) {
+          hungryThreat = true;
           const inv = 1 / Math.max(dist, 1);
           avoidX += (prey.x - enemy.x) * inv;
           avoidY += (prey.y - enemy.y) * inv;
@@ -2256,6 +2989,10 @@ function updatePrey(delta) {
       const dirX = avoidX / len;
       const dirY = avoidY / len;
       stepEntity(prey, dirX, dirY, prey.speed * PREY_FLEE_SPEED_MULT, deltaSeconds, 0.6);
+      if (prey.state === "graze") {
+        prey.state = "idle";
+        prey.feedPatchId = null;
+      }
       prey.state = "flee";
       prey.idleTimer = PREY_IDLE_MIN;
       return;
@@ -2293,9 +3030,28 @@ function updatePrey(delta) {
       prey.targetY = null;
     }
 
+    let grazePatch = prey.feedPatchId ? getGrassPatchById(prey.feedPatchId) : null;
+    if (!grazePatch && prey.feedPatchId) {
+      prey.feedPatchId = null;
+      if (prey.state === "graze") {
+        prey.state = "idle";
+      }
+    }
+
     let handledByCompanion = false;
     if (isCompanionVariant) {
       handledByCompanion = updateCompanionBehaviour(prey, deltaSeconds, playerDist);
+    }
+
+    if (!handledByCompanion && !hungryThreat && isPreyHungry && prey.state !== "graze") {
+      const candidatePatch = findNearestGrassPatch(prey.x, prey.y, PREY_GRAZE_RANGE);
+      if (candidatePatch) {
+        grazePatch = candidatePatch;
+        prey.feedPatchId = candidatePatch.id;
+        prey.targetX = candidatePatch.x;
+        prey.targetY = candidatePatch.y;
+        prey.state = "graze";
+      }
     }
 
     if (!handledByCompanion) {
@@ -2319,6 +3075,32 @@ function updatePrey(delta) {
           prey.targetY = null;
         } else {
           stepEntity(prey, dx / dist, dy / dist, prey.speed * 0.8, deltaSeconds, 0.62);
+        }
+      } else if (prey.state === "graze") {
+        if (!grazePatch || hungryThreat) {
+          prey.state = "idle";
+          prey.feedPatchId = null;
+          prey.targetX = null;
+          prey.targetY = null;
+        } else {
+          const dx = grazePatch.x - prey.x;
+          const dy = grazePatch.y - prey.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          if (dist > grazePatch.radius * 0.8) {
+            const dirX = dx / dist;
+            const dirY = dy / dist;
+            stepEntity(prey, dirX, dirY, prey.speed * 0.65, deltaSeconds, 0.65);
+          } else if (grazePatch.nutrients > 0) {
+            const consume = PREY_FEED_RATE * deltaSeconds;
+            const eaten = Math.min(consume, grazePatch.nutrients);
+            grazePatch.nutrients -= eaten;
+            prey.hunger = Math.max(0, prey.hunger - eaten);
+          } else {
+            prey.state = "idle";
+            prey.feedPatchId = null;
+            prey.targetX = null;
+            prey.targetY = null;
+          }
         }
       }
     }
@@ -2402,6 +3184,7 @@ function tryStartPlayerDash(dirX, dirY) {
   player.dashCooldown = PLAYER_DASH_COOLDOWN;
   player.satchelSwing = Math.min(1, player.satchelSwing + 0.5);
   spawnParticles(player.x, player.y, "#f9d64c", 90, 8);
+  playSfx("attack");
 }
 
 function updatePlayerDash(deltaSeconds) {
@@ -2501,6 +3284,7 @@ function attack() {
   player.lastAttack = now;
   player.mana -= 1;
   player.shootingTimer = 200;
+  playSfx("attack");
   spawnParticles(player.x, player.y, "#f9d64c", 160, 18);
   enemies.forEach((enemy) => {
     const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
@@ -2538,16 +3322,36 @@ function useSpell(slotIndex) {
   clearSpellSlot(slotIndex);
   switch (spellId) {
     case "blast":
+      playSfx("spell");
       castBlastSpell();
       break;
     case "heal":
+      playSfx("spell");
       castHealSpell();
       break;
     case "haste":
+      playSfx("spell");
       castHasteSpell();
       break;
     case "terrashield":
+      playSfx("spell");
       castTerrashieldSpell();
+      break;
+    case "flameorb":
+      playSfx("spell");
+      castFlameOrbSpell();
+      break;
+    case "frostnova":
+      playSfx("spell");
+      castFrostNovaSpell();
+      break;
+    case "timewarp":
+      playSfx("spell");
+      castTimeWarpSpell();
+      break;
+    case "chainlightning":
+      playSfx("spell");
+      castChainLightningSpell();
       break;
     default:
       break;
@@ -2605,6 +3409,108 @@ function castBlastSpell() {
   if (hits > 0) {
     showAchievement(`Arc blast scorched ${hits} foe${hits === 1 ? "" : "s"}!`);
   }
+}
+
+function castFlameOrbSpell() {
+  const target = enemies[0] || null;
+  const angle = target ? Math.atan2(target.y - player.y, target.x - player.x) : 0;
+  const speed = 320;
+  spellEffects.push({
+    type: "flameorb",
+    x: player.x,
+    y: player.y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    radius: 18,
+    damage: player.damage * 2.2,
+    duration: 1600,
+    elapsed: 0,
+    homing: true,
+    turnRate: 6,
+  });
+}
+
+function castFrostNovaSpell() {
+  const radius = CELL_SIZE * 2.4;
+  const shardTargets = [];
+  enemies.forEach((enemy) => {
+    const d = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (d <= radius) {
+      enemy.freezeTimer = 900;
+      enemy.slowTimer = 2200;
+      enemy.slowFactor = 0.35;
+      enemy.health -= player.damage * 0.6;
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(player.damage * 0.6), "enemy");
+      shardTargets.push(enemy);
+    }
+  });
+  shardTargets
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 3)
+    .forEach((enemy) => {
+      enemy.health -= player.damage * 0.4;
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(player.damage * 0.4), "enemy");
+    });
+  spellEffects.push({ type: "frostnova", x: player.x, y: player.y, duration: 780, elapsed: 0, maxRadius: radius * 1.15 });
+}
+
+function castTimeWarpSpell() {
+  timeWarpTimer = 5000;
+  enemies.forEach((enemy) => {
+    enemy.slowTimer = 5000;
+    enemy.slowFactor = 0.35;
+  });
+  spellEffects.push({
+    type: "timewarp",
+    x: player.x,
+    y: player.y,
+    followPlayer: true,
+    duration: 5000,
+    elapsed: 0,
+    maxRadius: Math.max(VIEWPORT.width, VIEWPORT.height),
+  });
+}
+
+function castChainLightningSpell() {
+  const maxChains = 5;
+  const hit = new Set();
+  const chainTargets = enemies
+    .map((e) => ({ e, d: Math.hypot(e.x - player.x, e.y - player.y) }))
+    .filter((x) => x.d < CELL_SIZE * 4)
+    .sort((a, b) => a.d - b.d)
+    .map((x) => x.e);
+  let current = chainTargets.shift() || null;
+  let prev = { x: player.x, y: player.y };
+  let chains = 0;
+  while (current && chains < maxChains) {
+    hit.add(current);
+    const dmg = player.damage * 1.4;
+    current.health -= dmg;
+    spawnDamageNumber(current.x, current.y - current.radius * 1.1, Math.round(dmg), "enemy");
+    spellEffects.push({
+      type: "chainlight",
+      x: current.x,
+      y: current.y,
+      duration: 260,
+      elapsed: 0,
+      source: { x: prev.x, y: prev.y },
+    });
+    chains += 1;
+    prev = { x: current.x, y: current.y };
+    current = chainTargets.find((e) => !hit.has(e) && Math.hypot(e.x - prev.x, e.y - prev.y) < CELL_SIZE * 3.5) || null;
+  }
+}
+
+function triggerFlameOrbExplosion(x, y, dmg = player.damage * 2) {
+  enemies.forEach((enemy) => {
+    const d = Math.hypot(enemy.x - x, enemy.y - y);
+    if (d < CELL_SIZE * 1.2) {
+      const dealt = dmg * (d < CELL_SIZE * 0.6 ? 1 : 0.6);
+      enemy.health -= dealt;
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
+    }
+  });
+  spellEffects.push({ type: "flameorb-explosion", x, y, duration: 360, elapsed: 0, radius: CELL_SIZE * 0.8 });
 }
 
 function castHealSpell() {
@@ -2719,6 +3625,7 @@ function draw() {
   const cameraY = player.y - VIEWPORT.height / 2;
   drawFloor(cameraX, cameraY);
   drawDecorations(cameraX, cameraY);
+  drawMineralPockets(cameraX, cameraY);
   drawMana(cameraX, cameraY);
   drawHealth(cameraX, cameraY);
   drawSpells(cameraX, cameraY);
@@ -2742,6 +3649,97 @@ function drawLevelTransitionOverlay() {
   ctx.fillStyle = `rgba(5, 5, 10, ${alpha})`;
   ctx.fillRect(0, 0, VIEWPORT.width, VIEWPORT.height);
   ctx.restore();
+}
+
+function drawMineralPockets(offsetX, offsetY) {
+  mineralPockets.forEach((pocket) => {
+    const px = pocket.x - offsetX;
+    const py = pocket.y - offsetY;
+    ctx.save();
+    ctx.translate(px, py);
+    const rockColor = pocket.mining ? "#ffe88a" : "#ffd56a";
+    const rockShadow = pocket.mining ? "#d49a34" : "#c1892d";
+    // base scatter of in-ground nuggets (flatter, embedded)
+    const pieces = [
+      { x: -pocket.radius * 0.5, y: pocket.radius * 0.08, w: pocket.radius * 0.7, h: pocket.radius * 0.22 },
+      { x: pocket.radius * 0.25, y: -pocket.radius * 0.05, w: pocket.radius * 0.45, h: pocket.radius * 0.2 },
+      { x: -pocket.radius * 0.1, y: -pocket.radius * 0.22, w: pocket.radius * 0.55, h: pocket.radius * 0.18 },
+      { x: pocket.radius * 0.5, y: pocket.radius * 0.12, w: pocket.radius * 0.3, h: pocket.radius * 0.14 },
+    ];
+    pieces.forEach((p) => {
+      const grad = ctx.createLinearGradient(p.x - p.w * 0.5, p.y - p.h * 0.5, p.x + p.w * 0.5, p.y + p.h * 0.5);
+      grad.addColorStop(0, rockColor);
+      grad.addColorStop(1, rockShadow);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(p.x - p.w * 0.5, p.y);
+      ctx.lineTo(p.x, p.y - p.h * 0.5);
+      ctx.lineTo(p.x + p.w * 0.5, p.y);
+      ctx.lineTo(p.x + p.w * 0.3, p.y + p.h * 0.4);
+      ctx.lineTo(p.x - p.w * 0.3, p.y + p.h * 0.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,230,180,0.3)";
+      ctx.beginPath();
+      ctx.moveTo(p.x - p.w * 0.15, p.y - p.h * 0.1);
+      ctx.lineTo(p.x + p.w * 0.25, p.y - p.h * 0.2);
+      ctx.lineTo(p.x + p.w * 0.1, p.y + p.h * 0.05);
+      ctx.closePath();
+      ctx.fill();
+    });
+
+    // Floating sparkles (slower, close to rock)
+    const sparkleCount = pocket.sparkles ? pocket.sparkles.length + 2 : 8;
+    const t = animationTime / 1000;
+    for (let i = 0; i < sparkleCount; i += 1) {
+      const spark = pocket.sparkles ? pocket.sparkles[i] : null;
+      const life = ((spark ? spark.speed * 0.4 : 0.18) * t + (spark ? spark.phase : i * 0.25)) % 1;
+      const alpha = Math.max(0, Math.sin(Math.PI * life)) * 0.35;
+      const sx = (spark ? spark.offsetX : (i / sparkleCount - 0.5) * 0.45) * pocket.radius;
+      const sy = (spark ? spark.baseY : -0.05) * pocket.radius - life * pocket.radius * 0.25;
+      const size = (spark ? spark.size : 1) * 1.1;
+      ctx.fillStyle = `rgba(255,240,170,${alpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, size, size * 0.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // embedded base shading
+    ctx.fillStyle = "rgba(80,60,30,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(0, pocket.radius * 0.3, pocket.radius * 0.7, pocket.radius * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const barWidth = 72;
+    const barHeight = 8;
+    const hpRatio = Math.max(0, pocket.health) / pocket.maxHealth;
+    ctx.translate(-barWidth / 2, -pocket.radius - 20);
+    ctx.fillStyle = "rgba(20,20,26,0.9)";
+    ctx.fillRect(0, 0, barWidth, barHeight);
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0, 0, barWidth, barHeight);
+    ctx.fillStyle = "#f8d23c";
+    ctx.fillRect(1, 1, (barWidth - 2) * hpRatio, barHeight - 2);
+
+    const distanceToPlayer = Math.hypot(player.x - pocket.x, player.y - pocket.y);
+    if (distanceToPlayer < MINING_RANGE * 1.05) {
+      ctx.translate(barWidth / 2, -10);
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 1;
+      ctx.font = "10px 'Press Start 2P', monospace";
+      const text = "M to mine";
+      const textWidth = ctx.measureText(text).width;
+      const padding = 6;
+      ctx.fillRect(-textWidth / 2 - padding, -16, textWidth + padding * 2, 16);
+      ctx.strokeRect(-textWidth / 2 - padding, -16, textWidth + padding * 2, 16);
+      ctx.fillStyle = "#fce98f";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, 0, -8);
+    }
+    ctx.restore();
+  });
 }
 
 function drawMana(offsetX, offsetY) {
@@ -3494,6 +4492,30 @@ function drawDecorationSprite(x, y, decoration) {
       ctx.ellipse(0.9, 0.0, 1.0, 0.6, 0, 0, Math.PI * 2);
       ctx.fill();
       break;
+    case "grass_patch": {
+      const patch = getGrassPatchById(decoration.grassId);
+      const fullness = patch ? Math.max(0.25, patch.nutrients / patch.maxNutrients) : 0.5;
+      ctx.fillStyle = `rgba(30,90,40,${0.35 + fullness * 0.3})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0.2, 2.4, 1.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const bladeCount = 5;
+      for (let i = 0; i < bladeCount; i += 1) {
+        const angle = -Math.PI / 8 + (i / (bladeCount - 1)) * (Math.PI / 4);
+        ctx.strokeStyle = `rgba(90,${140 + fullness * 80},70,0.85)`;
+        ctx.lineWidth = 0.2;
+        ctx.beginPath();
+        ctx.moveTo(-1.2 + i * 0.6, 0.4);
+        ctx.quadraticCurveTo(
+          -1.0 + i * 0.6 + Math.sin(angle) * 0.4,
+          -0.2 - fullness * 0.8,
+          -0.6 + i * 0.6,
+          -0.6 - fullness * 0.4
+        );
+        ctx.stroke();
+      }
+      break;
+    }
     case "glowing_moss":
       ctx.fillStyle = "rgba(20, 40, 30, 0.7)";
       ctx.beginPath();
@@ -4087,7 +5109,11 @@ function drawEnemies(offsetX, offsetY) {
 
 function drawPlayer(offsetX, offsetY) {
   const screenX = player.x - offsetX;
-  const screenY = player.y - offsetY;
+  const bob =
+    player.isMoving && player.walkCycle
+      ? Math.sin(((player.walkCycle % 520) / 520) * Math.PI * 2) * 1.2
+      : 0;
+  const screenY = player.y - offsetY + bob;
   ctx.save();
   ctx.strokeStyle = "rgba(247,157,42,0.4)";
   ctx.setLineDash([8, 10]);
@@ -5042,8 +6068,13 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     drawStaff();
     drawBack();
   } else if (isSide) {
-    drawSide();
-    drawStaff();
+    if (facing > 0) {
+      drawStaff();
+      drawSide();
+    } else {
+      drawSide();
+      drawStaff();
+    }
   } else {
     drawFront();
     drawStaff();
@@ -6005,6 +7036,171 @@ function drawSpellEffects(offsetX, offsetY) {
         ctx.stroke();
         break;
       }
+      case "frostnova": {
+        const progress = effect.progress || 0;
+        const radius = (effect.maxRadius || CELL_SIZE * 2.2) * Math.min(1, progress + 0.2);
+        ctx.globalCompositeOperation = "lighter";
+        const gradient = ctx.createRadialGradient(0, 0, radius * 0.18, 0, 0, radius);
+        gradient.addColorStop(0, "rgba(158,219,255,0.45)");
+        gradient.addColorStop(0.35, "rgba(158,219,255,0.25)");
+        gradient.addColorStop(1, "rgba(158,219,255,0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(190, 240, 255, 0.7)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.85, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(190, 240, 255, 0.4)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.65, 0, Math.PI * 2);
+        ctx.stroke();
+        const shardCount = 18;
+        for (let i = 0; i < shardCount; i += 1) {
+          const angle = (Math.PI * 2 * i) / shardCount + animationTime * 0.005;
+          const inner = radius * 0.35;
+          const outer = radius * (0.55 + Math.sin(progress * Math.PI * 2 + i) * 0.08);
+          ctx.strokeStyle = "rgba(200,240,255,0.5)";
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+          ctx.lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+          ctx.stroke();
+        }
+        const sparkleCount = 24;
+        for (let i = 0; i < sparkleCount; i += 1) {
+          const a = (Math.PI * 2 * i) / sparkleCount + progress * Math.PI * 2;
+          const r = radius * (0.3 + (i % 3) * 0.15);
+          const size = 2 + (i % 3) * 0.6;
+          const alpha = 0.5 * (1 - progress) + 0.2;
+          ctx.fillStyle = `rgba(210,240,255,${alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(Math.cos(a) * r, Math.sin(a) * r, size, size * 0.6, a, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "timewarp": {
+        const progress = effect.progress || 0;
+        const maxR = effect.maxRadius || Math.max(VIEWPORT.width, VIEWPORT.height);
+        const radius = maxR * (0.4 + 0.1 * Math.sin(progress * Math.PI * 6));
+        ctx.globalCompositeOperation = "lighter";
+        const gradient = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius);
+        gradient.addColorStop(0, "rgba(226,198,255,0.35)");
+        gradient.addColorStop(0.6, "rgba(110,80,150,0.2)");
+        gradient.addColorStop(1, "rgba(110,80,150,0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(226,198,255,0.5)";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.75, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(170,140,220,0.35)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.55, 0, Math.PI * 2);
+        ctx.stroke();
+        const sparkCount = 30;
+        for (let i = 0; i < sparkCount; i += 1) {
+          const angle = (Math.PI * 2 * i) / sparkCount + progress * Math.PI * 6;
+          const r = radius * (0.55 + (i % 2) * 0.1);
+          ctx.fillStyle = "rgba(255,230,255,0.25)";
+          ctx.beginPath();
+          ctx.ellipse(Math.cos(angle) * r, Math.sin(angle) * r, 3, 1.4, angle, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "chainlight": {
+        const alpha = 1 - (effect.progress || 0);
+        const src = effect.source || { x: effect.x, y: effect.y };
+        ctx.strokeStyle = `rgba(208,247,255,${alpha})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        const segments = 4;
+        for (let s = 0; s <= segments; s += 1) {
+          const tSeg = s / segments;
+          const ix = src.x + (effect.x - src.x) * tSeg + (Math.random() - 0.5) * 6;
+          const iy = src.y + (effect.y - src.y) * tSeg + (Math.random() - 0.5) * 6;
+          if (s === 0) ctx.moveTo(ix - offsetX, iy - offsetY);
+          else ctx.lineTo(ix - offsetX, iy - offsetY);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(120,190,255,${alpha * 0.7})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255,255,255,${alpha * 0.8})`;
+        ctx.beginPath();
+        ctx.arc(effect.x - offsetX, effect.y - offsetY, 4, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "flameorb": {
+        const r = (effect.radius || 16) * 0.8;
+        ctx.globalCompositeOperation = "lighter";
+        const core = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        core.addColorStop(0, "rgba(255,230,170,0.9)");
+        core.addColorStop(0.4, "rgba(255,180,90,0.75)");
+        core.addColorStop(1, "rgba(200,70,20,0)");
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        const tongues = 6;
+        for (let i = 0; i < tongues; i += 1) {
+          const angle = (Math.PI * 2 * i) / tongues + animationTime * 0.006;
+          const tip = r * (0.7 + Math.sin(animationTime * 0.01 + i) * 0.1);
+          ctx.save();
+          ctx.rotate(angle);
+          const grad = ctx.createLinearGradient(0, 0, tip, 0);
+          grad.addColorStop(0, "rgba(255,210,140,0.7)");
+          grad.addColorStop(1, "rgba(255,120,40,0)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(0, -r * 0.18);
+          ctx.quadraticCurveTo(tip * 0.4, 0, tip, -r * 0.12);
+          ctx.quadraticCurveTo(tip * 0.6, 0, 0, r * 0.18);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+        }
+
+        for (let i = 0; i < 8; i += 1) {
+          const a = (Math.PI * 2 * i) / 8 + animationTime * 0.004;
+          const d = r * (0.4 + (i % 2) * 0.12);
+          ctx.fillStyle = "rgba(255,240,200,0.45)";
+          ctx.beginPath();
+          ctx.ellipse(Math.cos(a) * d, Math.sin(a) * d, 2.2, 1.4, a, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "flameorb-explosion": {
+        const progress = effect.progress || 0;
+        const radius = (effect.radius || CELL_SIZE * 0.8) * (0.6 + 0.4 * (1 - progress));
+        ctx.globalCompositeOperation = "lighter";
+        const grad = ctx.createRadialGradient(0, 0, radius * 0.25, 0, 0, radius);
+        grad.addColorStop(0, `rgba(255,210,140,${0.65 * (1 - progress)})`);
+        grad.addColorStop(0.4, `rgba(255,140,60,${0.5 * (1 - progress)})`);
+        grad.addColorStop(1, "rgba(120,40,10,0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255,190,120,${0.8 * (1 - progress)})`;
+        ctx.lineWidth = 3 + 4 * (1 - progress);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.9, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
       case "haste": {
         const progress = effect.progress || 0;
         const fade = 1 - progress;
@@ -6267,6 +7463,60 @@ function getNearestPrey(x, y) {
   return closest ? { prey: closest, distance: closestDistance } : null;
 }
 
+function getPreyById(preyId) {
+  if (preyId == null) return null;
+  for (let i = 0; i < preyList.length; i += 1) {
+    const prey = preyList[i];
+    if (prey.bonded) continue;
+    if (prey.id === preyId) {
+      return prey;
+    }
+  }
+  return null;
+}
+
+function getGrassPatchById(patchId) {
+  if (!grassPatches || patchId == null) return null;
+  for (let i = 0; i < grassPatches.length; i += 1) {
+    const patch = grassPatches[i];
+    if (patch.id === patchId) return patch;
+  }
+  return null;
+}
+
+function findNearestGrassPatch(x, y, range) {
+  if (!grassPatches || grassPatches.length === 0) return null;
+  let best = null;
+  let bestDist = range;
+  for (let i = 0; i < grassPatches.length; i += 1) {
+    const patch = grassPatches[i];
+    if (patch.nutrients <= 4) continue;
+    const dist = Math.hypot(patch.x - x, patch.y - y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = patch;
+    }
+  }
+  return best;
+}
+
+function findPreyForEnemy(enemy, maxDistance) {
+  let closest = null;
+  let closestDistance = maxDistance;
+  for (let i = 0; i < preyList.length; i += 1) {
+    const prey = preyList[i];
+    if (prey.bonded) continue;
+    const distance = Math.hypot(prey.x - enemy.x, prey.y - enemy.y);
+    if (distance > maxDistance) continue;
+    if (!hasLineOfSight(enemy.x, enemy.y, prey.x, prey.y)) continue;
+    if (distance < closestDistance) {
+      closest = prey;
+      closestDistance = distance;
+    }
+  }
+  return closest ? { prey: closest, distance: closestDistance } : null;
+}
+
 function attemptConsumePrey(enemy) {
   for (let i = preyList.length - 1; i >= 0; i -= 1) {
     const prey = preyList[i];
@@ -6275,6 +7525,11 @@ function attemptConsumePrey(enemy) {
     if (distance < enemy.radius + prey.radius + 6) {
       spawnParticles(prey.x, prey.y, prey.color || "#7befa2", 120, 12);
       enemy.health = Math.min(enemy.maxHealth, enemy.health + ENEMY_PREY_FEAST_HEAL);
+      enemy.hunger = Math.max(0, (enemy.hunger || 0) - ENEMY_HUNGER_FEAST_VALUE);
+      if (enemy.preyTargetId === prey.id) {
+        enemy.preyTargetId = null;
+        enemy.preyRetargetTimer = 0;
+      }
       preyList.splice(i, 1);
       break;
     }
@@ -6342,22 +7597,36 @@ function generateDungeon() {
   const grid = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(0));
   const rooms = [];
   const decorations = [];
+  const grass = [];
   const shortestSide = Math.min(MAP_COLS, MAP_ROWS);
   const longestSide = Math.max(MAP_COLS, MAP_ROWS);
-  const minRoomSize = Math.max(4, Math.floor(shortestSide / 8));
-  const maxRoomSize = Math.max(minRoomSize + 2, Math.floor(shortestSide / 3.2));
+  const profile = mapGenerationProfile || {};
+  const sizeBias = profile.roomSizeBias || 0;
+  const minRoomSize = Math.max(4, Math.floor(shortestSide / 8) + Math.round(sizeBias));
+  const maxRoomSize = Math.max(
+    minRoomSize + 2,
+    Math.floor(shortestSide / 3.2) + Math.round(sizeBias * 1.5)
+  );
   const estimatedRoomArea = Math.pow((minRoomSize + maxRoomSize) / 2, 2);
-  const coverageTarget = 0.25 + Math.min(0.18, longestSide / 180);
+  const coverageBase = 0.3 + Math.min(0.2, longestSide / 150);
+  const coverageTarget = Math.min(0.78, coverageBase + (profile.opennessBonus || 0));
   const targetRooms = Math.round((MAP_COLS * MAP_ROWS * coverageTarget) / estimatedRoomArea);
-  const roomCount = Math.min(48, Math.max(12, targetRooms));
+  const roomCount = Math.min(60, Math.max(14, targetRooms));
+  const blockCols = Math.ceil(MAP_COLS / maxRoomSize);
+  const blockRows = Math.ceil(MAP_ROWS / maxRoomSize);
+  const blockOccupancy = Array.from({ length: blockRows }, () => Array(blockCols).fill(false));
+  let homeRoom = null;
   for (let i = 0; i < roomCount; i += 1) {
     const width = minRoomSize + Math.floor(Math.random() * Math.max(1, maxRoomSize - minRoomSize + 1));
     const height = minRoomSize + Math.floor(Math.random() * Math.max(1, maxRoomSize - minRoomSize + 1));
-    const padding = 2;
+    const padding = Math.max(1, profile.roomPadding ?? 2);
     const availableCols = Math.max(1, MAP_COLS - width - padding * 2);
     const availableRows = Math.max(1, MAP_ROWS - height - padding * 2);
     const x = padding + Math.floor(Math.random() * availableCols);
     const y = padding + Math.floor(Math.random() * availableRows);
+    const blockX = Math.floor((x + width / 2) / maxRoomSize);
+    const blockY = Math.floor((y + height / 2) / maxRoomSize);
+    if (blockOccupancy[blockY] && blockOccupancy[blockY][blockX]) continue;
     const room = {
       x,
       y,
@@ -6365,16 +7634,30 @@ function generateDungeon() {
       height,
       centerX: x + Math.floor(width / 2),
       centerY: y + Math.floor(height / 2),
+      isCorridor: width <= 4 || height <= 4,
     };
     carveRoom(grid, room, 1);
     rooms.push(room);
+    if (blockOccupancy[blockY]) blockOccupancy[blockY][blockX] = true;
+    if (!homeRoom) homeRoom = room;
   }
 
   const dungeonCenterX = MAP_COLS / 2;
   const dungeonCenterY = MAP_ROWS / 2;
   const smallCandidates = rooms.filter((room) => room.width <= 8 && room.height <= 8);
-  let homeRoom = null;
+  let centralChamber = null;
+  let centralScore = -Infinity;
   let homeScore = -Infinity;
+
+  rooms.forEach((room) => {
+    const area = room.width * room.height;
+    const distance = Math.hypot(room.centerX - dungeonCenterX, room.centerY - dungeonCenterY);
+    const score = area - distance * 1.4;
+    if (score > centralScore) {
+      centralScore = score;
+      centralChamber = room;
+    }
+  });
 
   const evaluateSideScore = (room) => {
     const area = room.width * room.height;
@@ -6413,10 +7696,28 @@ function generateDungeon() {
       }
     });
   }
+
+  if (centralChamber && centralChamber !== homeRoom) {
+    centralChamber.isCentral = true;
+  }
   homeRoom.isHome = true;
 
   rooms.sort((a, b) => a.centerX + a.centerY - (b.centerX + b.centerY));
-  for (let i = 1; i < rooms.length; i += 1) connectRooms(grid, rooms[i - 1], rooms[i], true);
+  const shouldWidenCorridors = Math.min(MAP_COLS, MAP_ROWS) >= 50;
+  const anchorRooms = rooms.slice(0, Math.min(5, rooms.length));
+  for (let i = 1; i < rooms.length; i += 1) {
+    const target = rooms[i];
+    const candidateSources = rooms
+      .map((room) => ({ room, dist: Math.hypot(room.centerX - target.centerX, room.centerY - target.centerY) }))
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, 4)
+      .map((entry) => entry.room);
+    let source = candidateSources[Math.floor(Math.random() * candidateSources.length)];
+    if (rooms.length > 8 && i % 3 === 0) {
+      source = anchorRooms[Math.floor(Math.random() * anchorRooms.length)];
+    }
+    connectRooms(grid, source, target, shouldWidenCorridors);
+  }
 
   const extraLinks = Math.max(4, Math.floor(rooms.length / 3));
   for (let i = 0; i < extraLinks; i += 1) {
@@ -6428,7 +7729,7 @@ function generateDungeon() {
 
   function carveMainCorridors() {
     const minSide = Math.min(MAP_COLS, MAP_ROWS);
-    const baseThickness = minSide >= 60 ? 2 : 1;
+    const baseThickness = minSide >= 60 ? 1 : 0;
     const columns = new Set();
     const rows = new Set();
     const clampIndex = (value, max) => Math.max(1, Math.min(max - 2, value));
@@ -6443,47 +7744,45 @@ function generateDungeon() {
       rows.add(clampIndex(Math.floor((MAP_ROWS * 2) / 3), MAP_ROWS));
     }
 
-    const carveTile = (cx, cy) => {
-      if (cx <= 0 || cy <= 0 || cx >= MAP_COLS - 1 || cy >= MAP_ROWS - 1) return;
-      for (let dy = -baseThickness; dy <= baseThickness; dy += 1) {
-        for (let dx = -baseThickness; dx <= baseThickness; dx += 1) {
-          const nx = cx + dx;
-          const ny = cy + dy;
-          if (nx <= 0 || ny <= 0 || nx >= MAP_COLS - 1 || ny >= MAP_ROWS - 1) continue;
-          if (grid[ny][nx] === 0) grid[ny][nx] = 1;
+    const carveLine = (index, horizontal) => {
+      const segments = rooms.filter((room) => {
+        if (horizontal) {
+          return index >= room.y && index <= room.y + room.height;
         }
-      }
-    };
-
-    const carveColumnSegments = (col) => {
-      rooms.forEach((room) => {
-        if (col < room.x - 1 || col > room.x + room.width) return;
-        const startRow = Math.max(1, room.y - 1);
-        const endRow = Math.min(MAP_ROWS - 2, room.y + room.height);
-        for (let row = startRow; row <= endRow; row += 1) {
-          carveTile(col, row);
+        return index >= room.x && index <= room.x + room.width;
+      });
+      segments.forEach((room) => {
+        const start = horizontal ? Math.max(1, room.x - 1) : Math.max(1, room.y - 1);
+        const end = horizontal
+          ? Math.min(MAP_COLS - 2, room.x + room.width + 1)
+          : Math.min(MAP_ROWS - 2, room.y + room.height + 1);
+        if (horizontal) {
+          for (let col = start; col <= end; col += 1) {
+            for (let offset = -baseThickness; offset <= baseThickness; offset += 1) {
+              const row = index + offset;
+              if (row <= 0 || row >= MAP_ROWS - 1) continue;
+              if (grid[row][col] === 0) grid[row][col] = 1;
+            }
+          }
+        } else {
+          for (let row = start; row <= end; row += 1) {
+            for (let offset = -baseThickness; offset <= baseThickness; offset += 1) {
+              const col = index + offset;
+              if (col <= 0 || col >= MAP_COLS - 1) continue;
+              if (grid[row][col] === 0) grid[row][col] = 1;
+            }
+          }
         }
       });
     };
 
-    const carveRowSegments = (row) => {
-      rooms.forEach((room) => {
-        if (row < room.y - 1 || row > room.y + room.height) return;
-        const startCol = Math.max(1, room.x - 1);
-        const endCol = Math.min(MAP_COLS - 2, room.x + room.width);
-        for (let col = startCol; col <= endCol; col += 1) {
-          carveTile(col, row);
-        }
-      });
-    };
-
-    columns.forEach((col) => carveColumnSegments(col));
-    rows.forEach((row) => carveRowSegments(row));
+    columns.forEach((col) => carveLine(col, false));
+    rows.forEach((row) => carveLine(row, true));
   }
   carveMainCorridors();
 
   rooms.forEach((room, index) => {
-    if (room.isHome) return;
+    if (room.isHome || room.isCentral) return;
     if (index % 3 === 0) {
       const alcoves = Math.floor(room.width / 3);
       for (let i = 0; i < alcoves; i += 1) {
@@ -6709,6 +8008,44 @@ function createMossField(room) {
   });
 
   rooms.forEach((room) => {
+    if (room.isHome || room.isCorridor) return;
+    const area = room.width * room.height;
+    const density = GRASS_PATCH_DENSITY + Math.max(0, profile.opennessBonus || 0) * 0.15;
+    const targetPatches = Math.max(GRASS_PATCH_MIN, Math.round(area * density));
+    let attempts = 0;
+    let placed = 0;
+    while (placed < targetPatches && attempts < targetPatches * 8) {
+      attempts += 1;
+      const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+      const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+      if (grid[tileY][tileX] === 0) continue;
+      const worldX = tileX * CELL_SIZE + CELL_SIZE / 2 + (Math.random() - 0.5) * CELL_SIZE * 0.35;
+      const worldY = tileY * CELL_SIZE + CELL_SIZE / 2 + (Math.random() - 0.5) * CELL_SIZE * 0.35;
+      const nutrients = GRASS_NUTRIENT_BASE + Math.random() * 30;
+      const patch = {
+        id: grassPatchIdCounter++,
+        x: worldX,
+        y: worldY,
+        radius: CELL_SIZE * 0.35,
+        nutrients,
+        maxNutrients: nutrients,
+        regenRate: GRASS_REGEN_RATE * (0.75 + Math.random() * 0.5),
+      };
+      grass.push(patch);
+      decorations.push({
+        x: worldX,
+        y: worldY,
+        type: "grass_patch",
+        grassId: patch.id,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.4 + Math.random() * 0.3,
+        intensity: 0.8,
+      });
+      placed += 1;
+    }
+  });
+
+  rooms.forEach((room) => {
     if (room.isHome) return;
     const mossCount = 1 + Math.floor(Math.random() * 2);
     let placed = 0;
@@ -6786,13 +8123,28 @@ function createMossField(room) {
 
   decorateHomeRoom(homeRoom);
 
-  return { grid, rooms, decorations, spawn: { x: spawnRoom.centerX, y: spawnRoom.centerY } };
+  return { grid, rooms, decorations, grass, spawn: { x: spawnRoom.centerX, y: spawnRoom.centerY } };
 }
 
 function carveRoom(grid, room, value) {
+  const thinRooms = MAP_COLS <= 32 && MAP_ROWS <= 32;
   for (let y = room.y; y < room.y + room.height; y += 1) {
     for (let x = room.x; x < room.x + room.width; x += 1) {
       grid[y][x] = value;
+    }
+  }
+
+  if (thinRooms && room.width * room.height > 16 && !room.isHome && !room.isCentral) {
+    for (let attempt = 0; attempt < room.width * room.height; attempt += 1) {
+      const carveWidth = Math.min(3, room.width - 2);
+      const carveHeight = Math.min(3, room.height - 2);
+      const startX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - carveWidth - 1));
+      const startY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - carveHeight - 1));
+      for (let y = startY; y < startY + carveHeight; y += 1) {
+        for (let x = startX; x < startX + carveWidth; x += 1) {
+          grid[y][x] = 0;
+        }
+      }
     }
   }
 }
@@ -6800,12 +8152,16 @@ function carveRoom(grid, room, value) {
 function connectRooms(grid, roomA, roomB, widen = true) {
   let x = roomA.centerX;
   let y = roomA.centerY;
+  const corridorRadius = Math.max(
+    1,
+    Math.round((mapGenerationProfile && mapGenerationProfile.corridorRadius) || 1)
+  );
   const carveCell = (cx, cy) => {
     if (cx <= 0 || cy <= 0 || cx >= MAP_COLS - 1 || cy >= MAP_ROWS - 1) return;
     if (grid[cy][cx] === 0) grid[cy][cx] = 1;
     if (!widen) return;
-    for (let dy = -1; dy <= 1; dy += 1) {
-      for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -corridorRadius; dy <= corridorRadius; dy += 1) {
+      for (let dx = -corridorRadius; dx <= corridorRadius; dx += 1) {
         const nx = cx + dx;
         const ny = cy + dy;
         if (nx <= 0 || ny <= 0 || nx >= MAP_COLS - 1 || ny >= MAP_ROWS - 1) continue;
@@ -6824,12 +8180,226 @@ function connectRooms(grid, roomA, roomB, widen = true) {
   }
 }
 
+function buildNavigationMesh() {
+  const nodeCount = MAP_ROWS * MAP_COLS;
+  const nodes = new Array(nodeCount);
+  const neighbors = new Array(nodeCount);
+  for (let row = 0; row < MAP_ROWS; row += 1) {
+    for (let col = 0; col < MAP_COLS; col += 1) {
+      const idx = row * MAP_COLS + col;
+      if (getTile(col, row) === 0) {
+        nodes[idx] = null;
+        neighbors[idx] = null;
+        continue;
+      }
+      nodes[idx] = {
+        col,
+        row,
+        x: col * CELL_SIZE + CELL_SIZE / 2,
+        y: row * CELL_SIZE + CELL_SIZE / 2,
+      };
+    }
+  }
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  for (let row = 0; row < MAP_ROWS; row += 1) {
+    for (let col = 0; col < MAP_COLS; col += 1) {
+      const idx = row * MAP_COLS + col;
+      if (!nodes[idx]) continue;
+      const adjacency = [];
+      for (let i = 0; i < dirs.length; i += 1) {
+        const nCol = col + dirs[i][0];
+        const nRow = row + dirs[i][1];
+        if (nCol < 0 || nRow < 0 || nCol >= MAP_COLS || nRow >= MAP_ROWS) continue;
+        const nIdx = nRow * MAP_COLS + nCol;
+        if (!nodes[nIdx]) continue;
+        adjacency.push(nIdx);
+      }
+      neighbors[idx] = adjacency;
+    }
+  }
+  navMesh = { nodes, neighbors };
+}
+
+function findNearestWalkableTile(col, row, maxRadius = PICKUP_SNAP_RADIUS) {
+  if (MAP_COLS === 0 || MAP_ROWS === 0) return null;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const startCol = clamp(col, 0, MAP_COLS - 1);
+  const startRow = clamp(row, 0, MAP_ROWS - 1);
+  const visited = new Set();
+  const queue = [{ col: startCol, row: startRow, dist: 0 }];
+  visited.add(`${startCol},${startRow}`);
+  const dirs = [
+    { x: 1, y: 0 },
+    { x: -1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 0, y: -1 },
+  ];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (getTile(current.col, current.row) !== 0) {
+      return current;
+    }
+    if (current.dist >= maxRadius) continue;
+    for (let i = 0; i < dirs.length; i += 1) {
+      const nextCol = current.col + dirs[i].x;
+      const nextRow = current.row + dirs[i].y;
+      if (nextCol < 0 || nextRow < 0 || nextCol >= MAP_COLS || nextRow >= MAP_ROWS) continue;
+      const key = `${nextCol},${nextRow}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      queue.push({ col: nextCol, row: nextRow, dist: current.dist + 1 });
+    }
+  }
+  return null;
+}
+
+function snapTileToWalkable(tileX, tileY, searchRadius = PICKUP_SNAP_RADIUS) {
+  const snapped = findNearestWalkableTile(tileX, tileY, searchRadius);
+  if (!snapped) return null;
+  return { col: snapped.col, row: snapped.row };
+}
+
+class MinHeap {
+  constructor() {
+    this.items = [];
+  }
+
+  push(value, priority) {
+    this.items.push({ value, priority });
+    this.bubbleUp(this.items.length - 1);
+  }
+
+  pop() {
+    if (this.items.length === 0) return null;
+    const top = this.items[0].value;
+    const end = this.items.pop();
+    if (this.items.length > 0 && end) {
+      this.items[0] = end;
+      this.bubbleDown(0);
+    }
+    return top;
+  }
+
+  isEmpty() {
+    return this.items.length === 0;
+  }
+
+  bubbleUp(index) {
+    let idx = index;
+    while (idx > 0) {
+      const parent = Math.floor((idx - 1) / 2);
+      if (this.items[idx].priority >= this.items[parent].priority) break;
+      [this.items[idx], this.items[parent]] = [this.items[parent], this.items[idx]];
+      idx = parent;
+    }
+  }
+
+  bubbleDown(index) {
+    let idx = index;
+    const length = this.items.length;
+    while (true) {
+      let left = idx * 2 + 1;
+      let right = left + 1;
+      let smallest = idx;
+      if (left < length && this.items[left].priority < this.items[smallest].priority) {
+        smallest = left;
+      }
+      if (right < length && this.items[right].priority < this.items[smallest].priority) {
+        smallest = right;
+      }
+      if (smallest === idx) break;
+      [this.items[idx], this.items[smallest]] = [this.items[smallest], this.items[idx]];
+      idx = smallest;
+    }
+  }
+}
+
+function findPathBetweenTiles(startCol, startRow, targetCol, targetRow) {
+  if (!navMesh) return null;
+  const startIndex = startRow * MAP_COLS + startCol;
+  const goalIndex = targetRow * MAP_COLS + targetCol;
+  const startNode = navMesh.nodes[startIndex];
+  const goalNode = navMesh.nodes[goalIndex];
+  if (!startNode || !goalNode) return null;
+  if (startIndex === goalIndex) return null;
+  const openSet = new MinHeap();
+  openSet.push(startIndex, 0);
+  const cameFrom = new Map();
+  const gScore = new Map([[startIndex, 0]]);
+  const closed = new Set();
+  let iterations = 0;
+  while (!openSet.isEmpty() && iterations < PATH_MAX_EXPANDED_NODES) {
+    const current = openSet.pop();
+    if (current === goalIndex) {
+      return reconstructPath(cameFrom, current);
+    }
+    closed.add(current);
+    const neighbors = navMesh.neighbors[current];
+    if (neighbors) {
+      for (let i = 0; i < neighbors.length; i += 1) {
+        const neighbor = neighbors[i];
+        if (closed.has(neighbor)) continue;
+        const tentativeG = (gScore.get(current) || Infinity) + CELL_SIZE;
+        if (tentativeG < (gScore.get(neighbor) ?? Infinity)) {
+          cameFrom.set(neighbor, current);
+          gScore.set(neighbor, tentativeG);
+          const neighborNode = navMesh.nodes[neighbor];
+          const h =
+            (Math.abs(neighborNode.col - targetCol) + Math.abs(neighborNode.row - targetRow)) * CELL_SIZE;
+          openSet.push(neighbor, tentativeG + h);
+        }
+      }
+    }
+    iterations += 1;
+  }
+  return null;
+}
+
+function reconstructPath(cameFrom, current) {
+  const path = [];
+  let nodeIndex = current;
+  while (nodeIndex !== undefined) {
+    const node = navMesh.nodes[nodeIndex];
+    if (node) path.push(node);
+    nodeIndex = cameFrom.get(nodeIndex);
+  }
+  path.reverse();
+  return path;
+}
+
+function findPathBetweenPoints(startX, startY, targetX, targetY) {
+  const startCol = Math.floor(startX / CELL_SIZE);
+  const startRow = Math.floor(startY / CELL_SIZE);
+  const targetCol = Math.floor(targetX / CELL_SIZE);
+  const targetRow = Math.floor(targetY / CELL_SIZE);
+  const snappedStart = snapTileToWalkable(startCol, startRow);
+  const snappedTarget = snapTileToWalkable(targetCol, targetRow);
+  if (!snappedStart || !snappedTarget) return null;
+  const path = findPathBetweenTiles(snappedStart.col, snappedStart.row, snappedTarget.col, snappedTarget.row);
+  if (!path || path.length === 0) return null;
+  return path.map((node) => ({
+    x: node.x,
+    y: node.y,
+    col: node.col,
+    row: node.row,
+  }));
+}
+
 function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    const room = dungeonRooms[Math.floor(Math.random() * dungeonRooms.length)];
+  const viableRooms = dungeonRooms.filter((room) => room.width > 3 && room.height > 3 && !room.isCorridor);
+  const roomList = viableRooms.length > 0 ? viableRooms : dungeonRooms;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const room = roomList[Math.floor(Math.random() * roomList.length)];
     const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
     const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
-    const key = `${tileX},${tileY}`;
+    const snapped = snapTileToWalkable(tileX, tileY);
+    if (!snapped) continue;
+    const key = `${snapped.col},${snapped.row}`;
     if (
       manaUsedPositions.has(key) ||
       healthUsedPositions.has(key) ||
@@ -6838,17 +8408,40 @@ function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
     ) {
       continue;
     }
-    const x = tileX * CELL_SIZE + CELL_SIZE / 2;
-    const y = tileY * CELL_SIZE + CELL_SIZE / 2;
+    const x = snapped.col * CELL_SIZE + CELL_SIZE / 2;
+    const y = snapped.row * CELL_SIZE + CELL_SIZE / 2;
+    if (!isWalkable(x, y, 12, 0.7)) continue;
     if (Math.hypot(x - player.x, y - player.y) >= minDistance) {
       return { x, y, key };
     }
   }
+  const fallbackSnap = snapTileToWalkable(spawnPoint.x, spawnPoint.y, PICKUP_SNAP_RADIUS * 2);
+  const fallbackCol = fallbackSnap ? fallbackSnap.col : spawnPoint.x;
+  const fallbackRow = fallbackSnap ? fallbackSnap.row : spawnPoint.y;
   return {
-    x: spawnPoint.x * CELL_SIZE + CELL_SIZE / 2,
-    y: spawnPoint.y * CELL_SIZE + CELL_SIZE / 2,
-    key: `${spawnPoint.x},${spawnPoint.y}`,
+    x: fallbackCol * CELL_SIZE + CELL_SIZE / 2,
+    y: fallbackRow * CELL_SIZE + CELL_SIZE / 2,
+    key: `${fallbackCol},${fallbackRow}`,
   };
+}
+
+function generateMineralLocation(usedKeys) {
+  const viableRooms = dungeonRooms.filter((room) => room.width > 4 && room.height > 4 && !room.isCorridor);
+  const roomList = viableRooms.length > 0 ? viableRooms : dungeonRooms;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const room = roomList[Math.floor(Math.random() * roomList.length)];
+    const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
+    const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+    const snapped = snapTileToWalkable(tileX, tileY);
+    if (!snapped) continue;
+    const key = `${snapped.col},${snapped.row}`;
+    if (usedKeys.has(key)) continue;
+    const x = snapped.col * CELL_SIZE + CELL_SIZE / 2;
+    const y = snapped.row * CELL_SIZE + CELL_SIZE / 2;
+    if (!isWalkable(x, y, MINERAL_RADIUS, 0.8)) continue;
+    return { x, y, key };
+  }
+  return null;
 }
 
 function moveEntityDistance(entity, dirX, dirY, distance) {
@@ -6928,6 +8521,50 @@ function findDetourDirection(entity, targetX, targetY) {
   return { x: Math.cos(baseAngle), y: Math.sin(baseAngle) };
 }
 
+function clearEnemyPath(enemy) {
+  enemy.path = null;
+  enemy.pathIndex = 0;
+  enemy.pathTargetCol = null;
+  enemy.pathTargetRow = null;
+}
+
+function updateEnemyPath(enemy, targetX, targetY, force = false) {
+  if (!navMesh) return null;
+  const targetCol = Math.floor(targetX / CELL_SIZE);
+  const targetRow = Math.floor(targetY / CELL_SIZE);
+  const targetChanged = enemy.pathTargetCol !== targetCol || enemy.pathTargetRow !== targetRow;
+  if (!force && enemy.path && !targetChanged && enemy.pathCooldown > 0) {
+    return enemy.path;
+  }
+  const path = findPathBetweenPoints(enemy.x, enemy.y, targetX, targetY);
+  if (path && path.length > 0) {
+    enemy.path = path;
+    enemy.pathIndex = 0;
+    enemy.pathTargetCol = targetCol;
+    enemy.pathTargetRow = targetRow;
+    enemy.pathCooldown = PATH_RECALC_INTERVAL;
+    return path;
+  }
+  clearEnemyPath(enemy);
+  enemy.pathCooldown = PATH_RETRY_INTERVAL;
+  return null;
+}
+
+function getEnemyPathWaypoint(enemy) {
+  if (!enemy.path || enemy.pathIndex >= enemy.path.length) return null;
+  while (enemy.path && enemy.pathIndex < enemy.path.length) {
+    const waypoint = enemy.path[enemy.pathIndex];
+    const distance = Math.hypot(waypoint.x - enemy.x, waypoint.y - enemy.y);
+    if (distance <= PATH_NODE_REACH_DISTANCE) {
+      enemy.pathIndex += 1;
+      continue;
+    }
+    return waypoint;
+  }
+  clearEnemyPath(enemy);
+  return null;
+}
+
 function getRoomAt(col, row) {
   return (
     dungeonRooms.find(
@@ -6994,56 +8631,67 @@ function hasLineOfSight(ax, ay, bx, by) {
 
 function renderShareCard(minutes, seconds) {
   if (!shareCanvas) return;
-  const width = shareCanvas.width;
-  const height = shareCanvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  const targetWidth = 600;
+  const targetHeight = 315;
+  if (shareCanvas.width !== targetWidth * dpr || shareCanvas.height !== targetHeight * dpr) {
+    shareCanvas.width = targetWidth * dpr;
+    shareCanvas.height = targetHeight * dpr;
+    shareCanvas.style.width = `${targetWidth}px`;
+    shareCanvas.style.height = `${targetHeight}px`;
+  }
+  shareCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  shareCtx.clearRect(0, 0, targetWidth, targetHeight);
+  const width = targetWidth;
+  const height = targetHeight;
   const backgroundGradient = shareCtx.createLinearGradient(0, 0, width, height);
   backgroundGradient.addColorStop(0, "#0e0b18");
   backgroundGradient.addColorStop(1, "#1b1024");
   shareCtx.fillStyle = backgroundGradient;
   shareCtx.fillRect(0, 0, width, height);
 
-  const frameGradient = shareCtx.createLinearGradient(0, 0, 0, height);
-  frameGradient.addColorStop(0, "rgba(255, 186, 72, 0.5)");
-  frameGradient.addColorStop(1, "rgba(146, 108, 255, 0.5)");
+  const frameGradient = shareCtx.createLinearGradient(0, 0, width, 0);
+  frameGradient.addColorStop(0, "rgba(255, 186, 72, 0.8)");
+  frameGradient.addColorStop(1, "rgba(146, 108, 255, 0.8)");
   shareCtx.strokeStyle = frameGradient;
-  shareCtx.lineWidth = 6;
-  shareCtx.strokeRect(28, 28, width - 56, height - 56);
+  shareCtx.lineWidth = 8;
+  shareCtx.strokeRect(14, 14, width - 28, height - 28);
 
-  shareCtx.fillStyle = "rgba(255,255,255,0.06)";
-  shareCtx.fillRect(34, 34, width - 68, height - 68);
+  shareCtx.fillStyle = "rgba(255,255,255,0.05)";
+  shareCtx.fillRect(26, 26, width - 52, height - 52);
 
   shareCtx.fillStyle = "#f2f2f2";
-  shareCtx.font = "30px 'Press Start 2P', monospace";
   shareCtx.textAlign = "center";
-  shareCtx.fillText("DUNGEON RUN", width / 2, 96);
+  shareCtx.textBaseline = "middle";
+  shareCtx.font = "34px 'Press Start 2P', monospace";
+  shareCtx.fillText("DUNGEON  RUN", width / 2, height * 0.2);
+
+  const boxWidth = width - 190;
+  const boxHeight = 170;
+  const boxX = (width - boxWidth) / 2;
+  const boxY = height * 0.4;
+  shareCtx.strokeStyle = "rgba(255,255,255,0.25)";
+  shareCtx.lineWidth = 3;
+  shareCtx.strokeRect(boxX, boxY, boxWidth, boxHeight);
 
   shareCtx.font = "16px 'Press Start 2P', monospace";
-  shareCtx.fillStyle = "rgba(255,255,255,0.9)";
-  const scoreBoxY = 150;
   const metrics = [
     { label: "LEVEL", value: state.level.toString().padStart(3, "0") },
     { label: "TIME", value: `${minutes}:${seconds}` },
     { label: "KILLS", value: state.kills.toString().padStart(3, "0") },
   ];
-
-  const boxWidth = width - 100;
-  const boxHeight = 180;
-  shareCtx.strokeStyle = "rgba(255,255,255,0.18)";
-  shareCtx.lineWidth = 3;
-  shareCtx.strokeRect((width - boxWidth) / 2, scoreBoxY, boxWidth, boxHeight);
-
+  const rowSpacing = boxHeight / (metrics.length + 1.2);
   metrics.forEach((metric, index) => {
-    const yOffset = scoreBoxY + 48 + index * 52;
-    shareCtx.fillStyle = "rgba(255,255,255,0.6)";
-    shareCtx.fillText(metric.label, width / 2, yOffset - 16);
+    const rowY = boxY + rowSpacing * (index + 1);
+    shareCtx.fillStyle = "rgba(255,255,255,0.75)";
+    shareCtx.fillText(metric.label, width / 2, rowY - 20);
     shareCtx.fillStyle = "#fce98f";
-    shareCtx.fillText(metric.value, width / 2, yOffset + 8);
+    shareCtx.fillText(metric.value, width / 2, rowY + 12);
   });
 
   shareCtx.font = "12px 'Press Start 2P', monospace";
-  shareCtx.fillStyle = "rgba(255,255,255,0.45)";
-  shareCtx.fillText("#DungeonRun", width / 2, height - 54);
-  shareCtx.fillText("quickpixel.games", width / 2, height - 34);
+  shareCtx.fillStyle = "rgba(255,255,255,0.6)";
+  shareCtx.fillText("quickpixel.games", width / 2, height - 30);
 }
 
 function downloadShareImage() {
@@ -7078,6 +8726,16 @@ function handleKeyDown(event) {
     }
     event.preventDefault();
     return;
+  }
+  if (spellbookOverlay && !spellbookOverlay.classList.contains("info-overlay--hidden")) {
+    if (event.key === "Escape") {
+      closeSpellbookOverlay();
+    }
+    event.preventDefault();
+    return;
+  }
+  if (!initialStart) {
+    startGame();
   }
   if (event.key === "p" || event.key === "P") {
     if (!state.over) {
@@ -7124,6 +8782,10 @@ function handleKeyDown(event) {
       if (!keys.right) registerMovementTap("right", 1, 0);
       keys.right = true;
       break;
+    case "m":
+    case "M":
+      keys.mine = true;
+      break;
     case "1":
       useSpell(0);
       break;
@@ -7164,6 +8826,10 @@ function handleKeyUp(event) {
     case "d":
     case "D":
       keys.right = false;
+      break;
+    case "m":
+    case "M":
+      keys.mine = false;
       break;
     default:
   }
@@ -7235,8 +8901,40 @@ function setupMobile() {
 function init() {
   updatePauseButton();
   setupMobile();
+  renderSpellbook();
   updateCanvasSize();
   requestAnimationFrame(loop);
+}
+
+function openSpellbookOverlay() {
+  if (!spellbookOverlay || !spellbookOverlay.classList.contains("info-overlay--hidden")) return;
+  renderSpellbook();
+  spellbookOverlay.classList.remove("info-overlay--hidden");
+  spellbookOverlay.setAttribute("aria-hidden", "false");
+  if (spellbookBtn) {
+    spellbookBtn.setAttribute("aria-expanded", "true");
+  }
+  if (spellbookClose) {
+    spellbookClose.focus();
+  }
+  spellbookPauseActive = true;
+  applyPauseState();
+  document.body.style.setProperty("overflow", "hidden");
+}
+
+function closeSpellbookOverlay(restoreFocus = true) {
+  if (!spellbookOverlay || spellbookOverlay.classList.contains("info-overlay--hidden")) return;
+  spellbookOverlay.classList.add("info-overlay--hidden");
+  spellbookOverlay.setAttribute("aria-hidden", "true");
+  if (spellbookBtn) {
+    spellbookBtn.setAttribute("aria-expanded", "false");
+    if (restoreFocus) {
+      spellbookBtn.focus();
+    }
+  }
+  spellbookPauseActive = false;
+  applyPauseState();
+  document.body.style.removeProperty("overflow");
 }
 
 function openInfoOverlay() {
@@ -7285,6 +8983,34 @@ canvas.addEventListener("pointerdown", (event) => {
   if (event.pointerType === "mouse") attack();
 });
 
+if (spellbookBtn) {
+  spellbookBtn.addEventListener("click", () => {
+    if (spellbookOverlay && spellbookOverlay.classList.contains("info-overlay--hidden")) {
+      openSpellbookOverlay();
+    } else {
+      closeSpellbookOverlay();
+    }
+  });
+}
+
+if (spellbookClose) {
+  spellbookClose.addEventListener("click", () => closeSpellbookOverlay());
+}
+
+if (spellSlotBuyBtn) {
+  spellSlotBuyBtn.addEventListener("click", () => {
+    if (mineralCount < 100) return;
+    mineralCount -= 100;
+    spellSlots.push(null);
+    starterSpells.push(SPELL_TYPES.find((s) => unlockedSpells.has(s.id))?.id || null);
+    saveMineralCount();
+    saveStarterSpells();
+    ensureSpellSlotElements();
+    updateHUD();
+    renderSpellbook();
+  });
+}
+
 if (infoBtn) {
   infoBtn.addEventListener("click", () => {
     if (infoOverlay && infoOverlay.classList.contains("info-overlay--hidden")) {
@@ -7324,10 +9050,14 @@ if (pauseBtn) {
 
 restartBtn.addEventListener("click", resetGame);
 if (startOverlay) {
+  startOverlay.removeAttribute("inert");
   startOverlay.setAttribute("aria-hidden", "false");
 }
 if (startBtn) {
   startBtn.addEventListener("click", startGame);
+}
+if (startOverlay && startOverlay.classList.contains("start-overlay--hidden")) {
+  startGame();
 }
 if (shareBtn) shareBtn.addEventListener("click", downloadShareImage);
 
@@ -7340,6 +9070,6 @@ window.addEventListener("resize", () => {
 init();
 const DOUBLE_TAP_WINDOW = 260;
 const PLAYER_DASH_COST = 2;
-const PLAYER_DASH_DISTANCE = CELL_SIZE * 0.625;
+const PLAYER_DASH_DISTANCE = CELL_SIZE * 1.25;
 const PLAYER_DASH_COOLDOWN = 520;
 const PLAYER_DASH_DURATION = 200;
