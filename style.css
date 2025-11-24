@@ -186,6 +186,11 @@ body {
   color: #ffe4b5;
 }
 
+.restart-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
 .pause-btn--active {
   background: var(--primary);
   color: #111111;
@@ -696,6 +701,7 @@ body {
   height: auto;
   display: block;
 }
+
 
 .btn {
   font-family: inherit;

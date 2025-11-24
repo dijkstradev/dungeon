@@ -22,7 +22,7 @@ const attackBtn = document.getElementById("attack-btn");
 const shareBtn = document.getElementById("share-btn");
 const sharePreview = document.querySelector(".share-preview");
 const shareCanvas = document.getElementById("share-canvas");
-const shareCtx = shareCanvas.getContext("2d");
+const shareCtx = shareCanvas ? shareCanvas.getContext("2d") : null;
 const minimapCanvas = document.getElementById("minimap");
 const minimapCtx = minimapCanvas.getContext("2d");
 const achievementBanner = document.getElementById("achievement-banner");
@@ -35,10 +35,12 @@ const spellbookOverlay = document.getElementById("spellbook-overlay");
 const spellbookClose = document.getElementById("spellbook-close");
 const startOverlay = document.getElementById("start-overlay");
 const startBtn = document.getElementById("start-btn");
+const inlineRestartBtn = document.getElementById("inline-restart-btn");
 let spellSlotEls = Array.from(document.querySelectorAll(".spell-slot"));
 let initialStart = false;
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
 let timeWarpTimer = 0;
+let slowMotionTimer = 0;
 
 const BASE_PLAYER_MAX_HEALTH = 100;
 const STARTING_MANA = 30;
@@ -63,6 +65,8 @@ const ELITE_ENEMY_UNLOCK_MS = 5 * 60 * 1000;
 const LEVEL_DURATION_MS = 120000;
 const LEVEL_TRANSITION_DURATION = 600;
 const LEVEL_ELITE_UNLOCK = 5;
+const SLOW_MOTION_FACTOR = 0.35;
+const SLOW_MOTION_DURATION = 2000;
 
 const VIEWPORT = { width: canvas.width, height: canvas.height };
 const MAP_BASE_COLS = 30;
@@ -585,6 +589,7 @@ const player = {
   terrashieldTimer: 0,
   terrashieldArmorTimer: 0,
   terrashieldBurstPending: false,
+  invulnerableTimer: 0,
 };
 
 const state = {
@@ -779,7 +784,7 @@ const HEALTH_RESPAWN = 15000;
 let healthAccumulator = HEALTH_RESPAWN;
 const HEALTH_AMOUNT = 25;
 const spellDrops = [];
-const SPELL_RESPAWN = 20000;
+const SPELL_RESPAWN = 6500;
 let spellAccumulator = SPELL_RESPAWN;
 const SPELL_TYPES = [
   { id: "blast", label: "Arc Blast", rune: "blast", color: "#f9d64c", desc: "Big burst, double staff range.", defaultUnlocked: true },
@@ -789,7 +794,7 @@ const SPELL_TYPES = [
   { id: "flameorb", label: "Flame Orb", rune: "flameorb", color: "#ffb347", desc: "Homing fireballs explode on impact.", defaultUnlocked: false },
   { id: "frostnova", label: "Frost Nova", rune: "frostnova", color: "#9edbff", desc: "Freeze burst slows foes; shards ricochet.", defaultUnlocked: false },
   { id: "timewarp", label: "Time Warp", rune: "timewarp", color: "#e2c6ff", desc: "Slow enemies, speed yourself briefly.", defaultUnlocked: false },
-  { id: "chainlightning", label: "Chain Lightning", rune: "chainlightning", color: "#d0f7ff", desc: "Lightning jumps through nearby enemies.", defaultUnlocked: false },
+  { id: "chainlightning", label: "Unlimeted Power", rune: "chainlightning", color: "#d0f7ff", desc: "Surging bolts blast forward, zapping foes in sight.", defaultUnlocked: false },
   { id: "emberstorm", label: "Emberstorm", rune: "emberstorm", color: "#ff8a5c", desc: "Cone of embers that ignite over time.", defaultUnlocked: false },
   { id: "meteordrop", label: "Meteor Drop", rune: "meteordrop", color: "#ff6b6b", desc: "Small meteors rain in a circle.", defaultUnlocked: false },
   { id: "venomtide", label: "Venom Tide", rune: "venomtide", color: "#7cf2a3", desc: "Poison wave that damages over time.", defaultUnlocked: false },
@@ -839,13 +844,23 @@ const SPELL_SLOT_RUNES = {
   terrashield:
     '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6l8 4.5v6.5c0 5.5-4 10-8 11-4-1-8-5.5-8-11V10.5z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M16 12v6.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15.5l4 3.2 4-3.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="11" r="2.4" fill="currentColor" opacity="0.18"/></svg>',
   flameorb:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6c3 2 6 5.5 6 9.2 0 3.8-3 7-6.5 7S9 19 9 15c0-2.8 2-6 7-9z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><path d="M14 14c1.6-1 3.2-0.6 4 0.4 0.8 1 0.6 2.6-0.6 3.8-1.2 1.2-3 1.4-4 0.2-0.8-1-0.8-2.8 0.6-4.4z" fill="currentColor" opacity="0.3"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6c-4.8 3.7-6 7.8-4 11.3 1.7 3 5 4.5 7.8 3.4 3.3-1.3 4.8-5.6 2.4-9.6C20.9 9.2 18.7 7.3 16 6z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 10.8c-1.8 2-2.1 4.1-0.6 5.5 1.1 1 2.8 1 3.8 0 1.2-1.3 1.2-3.2 0-5.1-0.5-0.8-1.2-1.6-2.1-2.4-0.4 0.6-0.8 1.2-1.1 2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/><path d="M15 17.6c0.4 0.9 1.4 1.5 2.3 1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.65"/></svg>',
   frostnova:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 4v24M6 16h20M9 9l14 14M9 23l14-14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity="0.9"/><circle cx="16" cy="16" r="3.4" fill="currentColor" opacity="0.25"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 5.5v21" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M6 16h20" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M9.5 9.5l13 13M9.5 22.5l13-13" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" opacity="0.9"/><path d="M16 10.5l-1.8 2.7-3.2 0.8 3.2 0.8 1.8 2.7 1.8-2.7 3.2-0.8-3.2-0.8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" opacity="0.9"/><circle cx="16" cy="16" r="2.6" fill="currentColor" opacity="0.28"/></svg>',
   timewarp:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M16 9v7l5 3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M10 12c-1 2-1 6 1.4 7.6 2 1.4 5 1.2 6.6-0.6" fill="none" stroke="currentColor" stroke-width="1.6" opacity="0.6"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.2" opacity="0.9"/><path d="M12 10c1.4-1 3-1.6 4-1.6 1 0 2.6 0.6 4 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"/><path d="M20 22c-1.4 1-3 1.6-4 1.6-1 0-2.6-0.6-4-1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.7"/><path d="M13 11.5h6l-2 2.5 2 2.5h-6l2-2.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10.5 16c-0.2 2.8 1 4.8 2.8 5.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.65"/><path d="M21.5 16c0.2-2.8-1-4.8-2.8-5.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.65"/></svg>',
   chainlightning:
-    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M13 4l-3 9h5l-4 11 11-14h-6l4-6z" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="11" cy="7" r="1.6" fill="currentColor" opacity="0.5"/><circle cx="21" cy="12" r="1.6" fill="currentColor" opacity="0.5"/></svg>',
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M14 4l-3 8h4l-3 7.5 7.8-9.7h-4.6l4.4-5.8z" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linejoin="round"/><path d="M11.5 7.4c-1.4 0.8-2.3 2.1-2.5 3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.65"/><path d="M20.8 12.2c1.4 0.8 2.4 2.1 2.7 3.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.65"/><circle cx="12" cy="8" r="1.4" fill="currentColor" opacity="0.5"/><circle cx="22" cy="13.5" r="1.4" fill="currentColor" opacity="0.5"/><circle cx="17.2" cy="19" r="1.3" fill="currentColor" opacity="0.45"/></svg>',
+  emberstorm:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 22c1.8-6 5-10 8-13 3 3 6.2 7 8 13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 16c0.6 1.6 2 2.6 3 2.2 0.8-0.4 1.2-1.8 0.8-3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.85"/></svg>',
+  meteordrop:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 10l2.4 2.4M20 10l-2.4 2.4M10 20l2.4-2.4M20 20l-2.4-2.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d=\"M16 8v4M16 20v4M8 16h4M20 16h4\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linecap=\"round\" opacity=\"0.8\"/></svg>',
+  venomtide:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M6 18c2-4 6-6 10-6s8 2 10 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M8 14c1.6-2 4.2-4 8-4 3.8 0 6.4 2 8 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=\"0.7\"/><path d="M14 18c0 1.8-1.2 3-2.4 3s-2.4-1.2-2.4-3 1.2-3 2.4-3 2.4 1.2 2.4 3z" fill="currentColor" opacity=\"0.45\"/></svg>',
+  shadowstep:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M10 22l6-12 6 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M12 18h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=\"0.8\"/><circle cx="16" cy="12" r="2.4" fill="currentColor" opacity="0.4"/></svg>',
+  stonewall:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 12h16v10H8z" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 17h16M14 12v10M20 12v10" stroke="currentColor" stroke-width="1.6" opacity=\"0.85\"/></svg>',
 };
 const SPELL_BLAST_RANGE_MULTIPLIER = 2;
 const SPELL_BLAST_DAMAGE_MULTIPLIER = 1.75;
@@ -887,6 +902,7 @@ const TITAN_SPAWN_INTERVAL = 60000;
 let titanAccumulator = 0;
 const meatDrops = [];
 const meatUsedPositions = new Set();
+const stoneWalls = [];
 const ENEMY_PREY_HEALTH_THRESHOLD = 0.3;
 const ENEMY_PREY_FEAST_HEAL = 60;
 const ENEMY_PREY_LOCK_DISTANCE = CELL_SIZE * 6;
@@ -895,6 +911,24 @@ const ENEMY_PREY_LOCK_DURATION = 900;
 const ENEMY_PREY_DIR_SMOOTH = 0.82;
 const enemyAggroFlags = {};
 const ALWAYS_AGGRESSIVE_VARIANTS = new Set(["voidreaver", "doomclaw", "blightfang", "blightreaver", "titan"]);
+const EMBER_CONE_RANGE = CELL_SIZE * 3.8;
+const EMBER_CONE_ANGLE = Math.PI / 3;
+const EMBER_BURN_DURATION = 4000;
+const EMBER_BURN_DPS = 0.35;
+const VENOM_TIDE_RADIUS = CELL_SIZE * 3.2;
+const VENOM_POISON_DURATION = 5200;
+const VENOM_POISON_DPS = 0.32;
+const METEOR_DROP_COUNT = 6;
+const METEOR_DROP_MIN_RANGE = CELL_SIZE * 1.1;
+const METEOR_DROP_MAX_RANGE = CELL_SIZE * 2.4;
+const METEOR_DROP_DELAY = 520;
+const METEOR_DROP_BLAST_RADIUS = CELL_SIZE * 0.9;
+const SHADOW_STEP_DISTANCE = CELL_SIZE * 1.8;
+const SHADOW_STEP_INVULN = 750;
+const STONEWALL_SEGMENTS = 6;
+const STONEWALL_RADIUS = 22;
+const STONEWALL_RING_RADIUS = CELL_SIZE * 1.2;
+const STONEWALL_DURATION = 6500;
 const PREY_TYPES = [
   { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.24, radius: 14, groupMin: 1, groupMax: 2 },
   { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.20, radius: 14, groupMin: 1, groupMax: 2 },
@@ -1032,6 +1066,7 @@ function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false, k
   meatDrops.length = 0;
   spellDrops.length = 0;
   mineralPockets.length = 0;
+  stoneWalls.length = 0;
   particles.length = 0;
   spellEffects.length = 0;
   damageNumbers.length = 0;
@@ -1159,6 +1194,7 @@ function resetGame() {
   player.mutationStage = 0;
   player.lastFacingX = 0;
   player.lastFacingY = 1;
+  player.invulnerableTimer = 0;
   rebuildWorldState({ refillSpellSlots: true, keepCompanions: false, keepAggroFlags: false });
   state.running = true;
   state.over = false;
@@ -1185,15 +1221,19 @@ function resetGame() {
 }
 
 function startGame() {
-  if (initialStart) return;
+  if (state.running && !state.over) return;
   initialStart = true;
-  if (startOverlay) {
-    startOverlay.classList.add("start-overlay--hidden");
-    startOverlay.removeAttribute("aria-hidden");
-    startOverlay.removeAttribute("inert");
-  }
+  hideStartOverlay();
   startBackgroundMusic();
   resetGame();
+}
+
+function hideStartOverlay() {
+  if (startOverlay) {
+    startOverlay.classList.add("start-overlay--hidden");
+    startOverlay.setAttribute("aria-hidden", "true");
+    startOverlay.setAttribute("inert", "true");
+  }
 }
 
 function handleLevelProgress(delta) {
@@ -1508,7 +1548,7 @@ function createHealthDrop() {
 function createSpellDrop() {
   const unlockedList = SPELL_TYPES.filter((s) => unlockedSpells.has(s.id));
   if (unlockedList.length === 0) return;
-  const drop = generatePickupLocation(MIN_PICKUP_DISTANCE * 1.4);
+  const drop = generatePickupLocation(MIN_PICKUP_DISTANCE * 0.5);
   const spell = unlockedList[nextSpellSpawnIndex % unlockedList.length];
   nextSpellSpawnIndex = (nextSpellSpawnIndex + 1) % unlockedList.length;
   spellUsedPositions.add(drop.key);
@@ -2139,6 +2179,9 @@ function update(delta) {
   if (timeWarpTimer > 0) {
     timeWarpTimer = Math.max(0, timeWarpTimer - delta);
   }
+  if (player.invulnerableTimer > 0) {
+    player.invulnerableTimer = Math.max(0, player.invulnerableTimer - delta);
+  }
   if (timeWarpTimer > 0) {
     timeWarpTimer = Math.max(0, timeWarpTimer - delta);
   }
@@ -2372,6 +2415,7 @@ function update(delta) {
 
   updateGrass(delta);
   updatePrey(delta);
+  updateStoneWalls(delta);
   updateMineralPockets(delta);
 
   enemies.forEach((enemy) => {
@@ -2387,6 +2431,7 @@ function update(delta) {
       ALWAYS_AGGRESSIVE_VARIANTS.has(enemy.variant) || enemyAggroFlags[enemy.variant] || isTitan;
     const provoked = enemy.health < enemy.maxHealth;
     const shouldAggroPlayer = variantAggro || provoked;
+    applyStatusDamage(enemy, deltaSeconds);
     const canConsiderPrey =
       hungerLevel >= ENEMY_HUNGER_HUNT_THRESHOLD || healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD;
     const senseRange = isTitan ? ENEMY_PREY_SENSE_RANGE * 1.2 : ENEMY_PREY_SENSE_RANGE;
@@ -2713,17 +2758,21 @@ function update(delta) {
       enemy.damageCooldown === 0 &&
       (shouldAggroPlayer || enemy.behaviour === "titan")
     ) {
-      let incomingDamage = enemy.damage;
-      if (player.terrashieldArmorTimer > 0) {
-        incomingDamage = Math.max(1, Math.ceil(incomingDamage * (1 - TERRASHIELD_ARMOR_REDUCTION)));
+      if (player.invulnerableTimer > 0) {
+        enemy.damageCooldown = 400;
+      } else {
+        let incomingDamage = enemy.damage;
+        if (player.terrashieldArmorTimer > 0) {
+          incomingDamage = Math.max(1, Math.ceil(incomingDamage * (1 - TERRASHIELD_ARMOR_REDUCTION)));
+        }
+        player.health -= incomingDamage;
+        spawnDamageNumber(player.x, player.y - player.radius * 1.4, incomingDamage, "player");
+        enemy.damageCooldown = 700;
+        enemy.attackTimer = Math.max(enemy.attackTimer || 0, 260);
+        spawnParticles(player.x, player.y, "#f45d5d");
+        playSfx("hurt");
+        if (player.health <= 0) gameOver();
       }
-      player.health -= incomingDamage;
-      spawnDamageNumber(player.x, player.y - player.radius * 1.4, incomingDamage, "player");
-      enemy.damageCooldown = 700;
-      enemy.attackTimer = Math.max(enemy.attackTimer || 0, 260);
-      spawnParticles(player.x, player.y, "#f45d5d");
-      playSfx("hurt");
-      if (player.health <= 0) gameOver();
     }
   });
 
@@ -2891,6 +2940,9 @@ function update(delta) {
     if (effect.duration) {
       effect.progress = Math.min(effect.elapsed / effect.duration, 1);
       if (effect.elapsed >= effect.duration) {
+        if (effect.type === "meteorfall") {
+          triggerMeteorImpact(effect);
+        }
         spellEffects.splice(i, 1);
       }
     }
@@ -2934,6 +2986,15 @@ function updateMineralPockets(delta) {
       spawnParticles(player.x, player.y, "#c9f05f", 140, 14);
       playSfx("mine");
       updateHUD();
+    }
+  }
+}
+
+function updateStoneWalls(delta) {
+  for (let i = stoneWalls.length - 1; i >= 0; i -= 1) {
+    stoneWalls[i].duration -= delta;
+    if (stoneWalls[i].duration <= 0) {
+      stoneWalls.splice(i, 1);
     }
   }
 }
@@ -3353,6 +3414,26 @@ function useSpell(slotIndex) {
       playSfx("spell");
       castChainLightningSpell();
       break;
+    case "emberstorm":
+      playSfx("spell");
+      castEmberstormSpell();
+      break;
+    case "meteordrop":
+      playSfx("spell");
+      castMeteorDropSpell();
+      break;
+    case "venomtide":
+      playSfx("spell");
+      castVenomTideSpell();
+      break;
+    case "shadowstep":
+      playSfx("spell");
+      castShadowStepSpell();
+      break;
+    case "stonewall":
+      playSfx("spell");
+      castStonewallSpell();
+      break;
     default:
       break;
   }
@@ -3472,33 +3553,240 @@ function castTimeWarpSpell() {
 }
 
 function castChainLightningSpell() {
-  const maxChains = 5;
-  const hit = new Set();
-  const chainTargets = enemies
-    .map((e) => ({ e, d: Math.hypot(e.x - player.x, e.y - player.y) }))
-    .filter((x) => x.d < CELL_SIZE * 4)
-    .sort((a, b) => a.d - b.d)
-    .map((x) => x.e);
-  let current = chainTargets.shift() || null;
-  let prev = { x: player.x, y: player.y };
-  let chains = 0;
-  while (current && chains < maxChains) {
-    hit.add(current);
+  slowMotionTimer = Math.max(slowMotionTimer, SLOW_MOTION_DURATION);
+  const maxTargets = 7;
+  const viewRange = CELL_SIZE * 7.5;
+  const facingX = player.facingX || player.lastFacingX || 0;
+  const facingY = player.facingY || player.lastFacingY || 1;
+  const len = Math.hypot(facingX, facingY) || 1;
+  const dirX = facingX / len;
+  const dirY = facingY / len;
+  const coneCos = Math.cos(Math.PI / 2.25); // wider cone ~80°
+
+  const targets = enemies
+    .map((enemy) => {
+      const dx = enemy.x - player.x;
+      const dy = enemy.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      const dot = dist > 0 ? (dx * dirX + dy * dirY) / dist : -1;
+      return { enemy, dist, dot };
+    })
+    .filter((entry) => entry.dist <= viewRange && entry.dot >= coneCos && hasLineOfSight(player.x, player.y, entry.enemy.x, entry.enemy.y))
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, maxTargets);
+
+  spellEffects.push({
+    type: "unlimeted-power",
+    followPlayer: true,
+    duration: SLOW_MOTION_DURATION,
+    elapsed: 0,
+  });
+
+  if (targets.length === 0) {
+    // Fire visual bolts forward even without targets
+    const rays = 5;
+    for (let i = 0; i < rays; i += 1) {
+      const spread = (i - (rays - 1) / 2) * (Math.PI / 14);
+      const tx = player.x + Math.cos(Math.atan2(dirY, dirX) + spread) * viewRange * 0.9;
+      const ty = player.y + Math.sin(Math.atan2(dirY, dirX) + spread) * viewRange * 0.9;
+      spellEffects.push({
+        type: "chainlight",
+        x: tx,
+        y: ty,
+        duration: 360,
+        elapsed: 0,
+        source: { x: player.x, y: player.y },
+      });
+    }
+    showAchievement("Unlimeted Power unleashed!");
+    return;
+  }
+
+  targets.forEach((entry, index) => {
     const dmg = player.damage * 1.4;
-    current.health -= dmg;
-    spawnDamageNumber(current.x, current.y - current.radius * 1.1, Math.round(dmg), "enemy");
+    entry.enemy.health -= dmg;
+    spawnDamageNumber(entry.enemy.x, entry.enemy.y - entry.enemy.radius * 1.1, Math.round(dmg), "enemy");
     spellEffects.push({
       type: "chainlight",
-      x: current.x,
-      y: current.y,
-      duration: 260,
+      x: entry.enemy.x,
+      y: entry.enemy.y,
+      duration: 420,
       elapsed: 0,
-      source: { x: prev.x, y: prev.y },
+      source: { x: player.x, y: player.y },
     });
-    chains += 1;
-    prev = { x: current.x, y: current.y };
-    current = chainTargets.find((e) => !hit.has(e) && Math.hypot(e.x - prev.x, e.y - prev.y) < CELL_SIZE * 3.5) || null;
+    spawnParticles(entry.enemy.x, entry.enemy.y, "#d0f7ff", 140, 12);
+    spawnParticles(entry.enemy.x, entry.enemy.y, "#7cc8ff", 110, 10);
+    if (index % 2 === 0) {
+      spawnParticles(entry.enemy.x, entry.enemy.y, "#ffffff", 70, 6);
+    }
+  });
+
+  showAchievement(`Unlimeted Power zapped ${targets.length} foe${targets.length === 1 ? "" : "s"}!`);
+}
+
+function castEmberstormSpell() {
+  const facingX = player.facingX || player.lastFacingX || 0;
+  const facingY = player.facingY || player.lastFacingY || 1;
+  const len = Math.hypot(facingX, facingY) || 1;
+  const dirX = facingX / len;
+  const dirY = facingY / len;
+  const coneCos = Math.cos(EMBER_CONE_ANGLE);
+  const maxRange = EMBER_CONE_RANGE;
+  let hits = 0;
+  enemies.forEach((enemy) => {
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxRange) return;
+    const dot = dist > 0 ? (dx * dirX + dy * dirY) / dist : -1;
+    if (dot < coneCos) return;
+    const los = hasLineOfSight(player.x, player.y, enemy.x, enemy.y);
+    if (!los) return;
+    const burnDps = player.damage * EMBER_BURN_DPS;
+    enemy.burnTimer = EMBER_BURN_DURATION;
+    enemy.burnDps = burnDps;
+    const upfront = player.damage * 0.4;
+    enemy.health -= upfront;
+    spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(upfront), "enemy");
+    hits += 1;
+  });
+  spellEffects.push({
+    type: "emberstorm",
+    followPlayer: true,
+    duration: 900,
+    elapsed: 0,
+  });
+  if (hits > 0) {
+    showAchievement(`Emberstorm ignited ${hits} foe${hits === 1 ? "" : "s"}!`);
   }
+}
+
+function castVenomTideSpell() {
+  const radius = VENOM_TIDE_RADIUS;
+  let hits = 0;
+  enemies.forEach((enemy) => {
+    const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (dist > radius) return;
+    enemy.poisonTimer = VENOM_POISON_DURATION;
+    enemy.poisonDps = player.damage * VENOM_POISON_DPS;
+    const upfront = player.damage * 0.25;
+    enemy.health -= upfront;
+    spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(upfront), "enemy");
+    enemy.slowTimer = Math.max(enemy.slowTimer || 0, 1400);
+    enemy.slowFactor = Math.min(enemy.slowFactor || 1, 0.6);
+    hits += 1;
+  });
+  spellEffects.push({
+    type: "venomtide",
+    followPlayer: true,
+    duration: 1200,
+    elapsed: 0,
+    maxRadius: radius,
+  });
+  if (hits > 0) showAchievement(`Venom Tide tainted ${hits} foe${hits === 1 ? "" : "s"}!`);
+}
+
+function castMeteorDropSpell() {
+  const meteors = METEOR_DROP_COUNT;
+  for (let i = 0; i < meteors; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist =
+      METEOR_DROP_MIN_RANGE + Math.random() * (METEOR_DROP_MAX_RANGE - METEOR_DROP_MIN_RANGE);
+    const targetX = player.x + Math.cos(angle) * dist;
+    const targetY = player.y + Math.sin(angle) * dist;
+    if (!isWalkable(targetX, targetY, 12, 0.8)) continue;
+    spellEffects.push({
+      type: "meteorfall",
+      x: targetX,
+      y: targetY,
+      duration: METEOR_DROP_DELAY + Math.random() * 280,
+      elapsed: 0,
+      radius: METEOR_DROP_BLAST_RADIUS,
+    });
+  }
+  spellEffects.push({
+    type: "meteordrop",
+    followPlayer: true,
+    duration: 900,
+    elapsed: 0,
+  });
+}
+
+function triggerMeteorImpact(effect) {
+  enemies.forEach((enemy) => {
+    const dist = Math.hypot(enemy.x - effect.x, enemy.y - effect.y);
+    if (dist <= effect.radius) {
+      const dmg = player.damage * 1.6;
+      enemy.health -= dmg;
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dmg), "enemy");
+    }
+  });
+  spellEffects.push({
+    type: "meteor-explosion",
+    x: effect.x,
+    y: effect.y,
+    duration: 520,
+    elapsed: 0,
+    radius: effect.radius,
+  });
+}
+
+function castShadowStepSpell() {
+  const facingX = player.facingX || player.lastFacingX || 0;
+  const facingY = player.facingY || player.lastFacingY || 1;
+  const len = Math.hypot(facingX, facingY) || 1;
+  const dirX = facingX / len;
+  const dirY = facingY / len;
+  const maxDist = SHADOW_STEP_DISTANCE;
+  let travel = maxDist;
+  while (travel > CELL_SIZE * 0.3) {
+    const nx = player.x + dirX * travel;
+    const ny = player.y + dirY * travel;
+    if (isWalkable(nx, ny, player.radius)) {
+      spellEffects.push({
+        type: "shadowstep",
+        x: (player.x + nx) / 2,
+        y: (player.y + ny) / 2,
+        duration: 420,
+        elapsed: 0,
+        start: { x: player.x, y: player.y },
+        end: { x: nx, y: ny },
+      });
+      player.x = nx;
+      player.y = ny;
+      player.invulnerableTimer = SHADOW_STEP_INVULN;
+      break;
+    }
+    travel -= CELL_SIZE * 0.1;
+  }
+}
+
+function castStonewallSpell() {
+  const segments = STONEWALL_SEGMENTS;
+  const ring = STONEWALL_RING_RADIUS;
+  for (let i = 0; i < segments; i += 1) {
+    const angle = (Math.PI * 2 * i) / segments;
+    const wx = player.x + Math.cos(angle) * ring;
+    const wy = player.y + Math.sin(angle) * ring;
+    if (!isWalkable(wx, wy, STONEWALL_RADIUS * 0.9)) continue;
+    stoneWalls.push({
+      x: wx,
+      y: wy,
+      radius: STONEWALL_RADIUS,
+      duration: STONEWALL_DURATION,
+      maxDuration: STONEWALL_DURATION,
+    });
+  }
+  spellEffects.push({
+    type: "stonewall",
+    followPlayer: false,
+    x: player.x,
+    y: player.y,
+    duration: 620,
+    elapsed: 0,
+    radius: ring,
+  });
+  showAchievement("Stonewall raised!");
 }
 
 function triggerFlameOrbExplosion(x, y, dmg = player.damage * 2) {
@@ -3626,6 +3914,7 @@ function draw() {
   drawFloor(cameraX, cameraY);
   drawDecorations(cameraX, cameraY);
   drawMineralPockets(cameraX, cameraY);
+  drawStoneWalls(cameraX, cameraY);
   drawMana(cameraX, cameraY);
   drawHealth(cameraX, cameraY);
   drawSpells(cameraX, cameraY);
@@ -3738,6 +4027,29 @@ function drawMineralPockets(offsetX, offsetY) {
       ctx.textBaseline = "middle";
       ctx.fillText(text, 0, -8);
     }
+    ctx.restore();
+  });
+}
+
+function drawStoneWalls(offsetX, offsetY) {
+  stoneWalls.forEach((wall) => {
+    const px = wall.x - offsetX;
+    const py = wall.y - offsetY;
+    const lifeRatio = Math.max(0, wall.duration / wall.maxDuration);
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.fillStyle = `rgba(120,110,90,${0.9})`;
+    ctx.strokeStyle = `rgba(255,255,255,${0.2 + 0.4 * lifeRatio})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, wall.radius * 0.4, wall.radius * 1.2, wall.radius * 0.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = `rgba(180,170,150,${0.8})`;
+    ctx.beginPath();
+    ctx.rect(-wall.radius * 0.8, -wall.radius, wall.radius * 1.6, wall.radius * 1.4);
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
   });
 }
@@ -3969,6 +4281,124 @@ function renderSpellRune(spellId) {
       ctx.quadraticCurveTo(0.1, 0.8, 0.7, 0.3);
       ctx.stroke();
       break;
+    case "terrashield":
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -1.8);
+      ctx.lineTo(0, 1.8);
+      ctx.moveTo(-1.1, 0);
+      ctx.lineTo(1.1, 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.6, Math.PI * 0.2, Math.PI * 0.8);
+      ctx.stroke();
+      break;
+    case "flameorb":
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -1.4);
+      ctx.quadraticCurveTo(0.8, -0.4, 0.2, 0.8);
+      ctx.stroke();
+      break;
+    case "frostnova":
+      ctx.lineWidth = 0.45;
+      for (let i = 0; i < 4; i += 1) {
+        const a = (Math.PI / 2) * i;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * -0.2, Math.sin(a) * -0.2);
+        ctx.lineTo(Math.cos(a) * 1.8, Math.sin(a) * 1.8);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case "timewarp":
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, -1.0);
+      ctx.lineTo(0, 0.6);
+      ctx.lineTo(0.9, 1.2);
+      ctx.stroke();
+      break;
+    case "chainlightning":
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-0.6, -2.0);
+      ctx.lineTo(-1.4, 0.4);
+      ctx.lineTo(0, 0.2);
+      ctx.lineTo(-0.8, 2.0);
+      ctx.lineTo(1.0, -0.2);
+      ctx.lineTo(0.2, -0.4);
+      ctx.closePath();
+      ctx.stroke();
+      break;
+    case "emberstorm":
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-1.4, 1.8);
+      ctx.quadraticCurveTo(0, -1.6, 1.4, 1.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-0.4, 0.6);
+      ctx.quadraticCurveTo(0, 1.4, 0.6, 0.2);
+      ctx.stroke();
+      break;
+    case "meteordrop":
+      ctx.lineWidth = 0.45;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let i = 0; i < 4; i += 1) {
+        const a = (Math.PI / 2) * i;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * 2.2, Math.sin(a) * 2.2);
+        ctx.lineTo(Math.cos(a) * 0.8, Math.sin(a) * 0.8);
+        ctx.stroke();
+      }
+      break;
+    case "venomtide":
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.8, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.2, Math.PI * 0.2, Math.PI * 0.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(-0.4, 0.4, 0.35, 0, Math.PI * 2);
+      ctx.stroke();
+      break;
+    case "shadowstep":
+      ctx.lineWidth = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(-1.4, 1.8);
+      ctx.lineTo(0, -2.0);
+      ctx.lineTo(1.4, 1.8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-0.8, 0.4);
+      ctx.lineTo(0.8, 0.4);
+      ctx.stroke();
+      break;
+    case "stonewall":
+      ctx.lineWidth = 0.55;
+      ctx.beginPath();
+      ctx.rect(-1.6, -1.0, 3.2, 2.0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-1.6, 0);
+      ctx.lineTo(1.6, 0);
+      ctx.moveTo(0, -1);
+      ctx.lineTo(0, 1);
+      ctx.stroke();
+      break;
     default:
       ctx.beginPath();
       ctx.arc(0, 0, 1.0, 0, Math.PI * 2);
@@ -4007,6 +4437,29 @@ function spawnDamageNumber(x, y, amount, target = "enemy", options = {}) {
     life: 520,
     maxLife: 520,
   });
+}
+
+function applyStatusDamage(enemy, deltaSeconds) {
+  if (enemy.burnTimer && enemy.burnTimer > 0) {
+    const burnDps = enemy.burnDps || 0;
+    const burnDamage = burnDps * deltaSeconds;
+    enemy.health -= burnDamage;
+    enemy.burnTimer = Math.max(0, enemy.burnTimer - deltaSeconds * 1000);
+    if (Math.random() < 0.2) {
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(burnDamage)), "enemy");
+    }
+  }
+  if (enemy.poisonTimer && enemy.poisonTimer > 0) {
+    const poisonDps = enemy.poisonDps || 0;
+    const poisonDamage = poisonDps * deltaSeconds;
+    enemy.health -= poisonDamage;
+    enemy.poisonTimer = Math.max(0, enemy.poisonTimer - deltaSeconds * 1000);
+    enemy.slowTimer = Math.max(enemy.slowTimer || 0, 320);
+    enemy.slowFactor = Math.min(enemy.slowFactor || 1, 0.7);
+    if (Math.random() < 0.18) {
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(poisonDamage)), "enemy");
+    }
+  }
 }
 
 function spawnHealNumber(x, y, amount = 1) {
@@ -7120,24 +7573,220 @@ function drawSpellEffects(offsetX, offsetY) {
       case "chainlight": {
         const alpha = 1 - (effect.progress || 0);
         const src = effect.source || { x: effect.x, y: effect.y };
-        ctx.strokeStyle = `rgba(208,247,255,${alpha})`;
-        ctx.lineWidth = 3;
+        const jitter = 7;
+        ctx.globalCompositeOperation = "lighter";
+        // outer glow layer
+        ctx.strokeStyle = `rgba(120,190,255,${alpha * 0.35})`;
+        ctx.lineWidth = 5;
         ctx.beginPath();
-        const segments = 4;
-        for (let s = 0; s <= segments; s += 1) {
-          const tSeg = s / segments;
-          const ix = src.x + (effect.x - src.x) * tSeg + (Math.random() - 0.5) * 6;
-          const iy = src.y + (effect.y - src.y) * tSeg + (Math.random() - 0.5) * 6;
+        const segmentsOuter = 5;
+        for (let s = 0; s <= segmentsOuter; s += 1) {
+          const tSeg = s / segmentsOuter;
+          const ix = src.x + (effect.x - src.x) * tSeg + (Math.random() - 0.5) * jitter;
+          const iy = src.y + (effect.y - src.y) * tSeg + (Math.random() - 0.5) * jitter;
           if (s === 0) ctx.moveTo(ix - offsetX, iy - offsetY);
           else ctx.lineTo(ix - offsetX, iy - offsetY);
         }
         ctx.stroke();
-        ctx.strokeStyle = `rgba(120,190,255,${alpha * 0.7})`;
+        // main bolt
+        ctx.strokeStyle = `rgba(208,247,255,${alpha})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        const segments = 5;
+        for (let s = 0; s <= segments; s += 1) {
+          const tSeg = s / segments;
+          const ix = src.x + (effect.x - src.x) * tSeg + (Math.random() - 0.5) * jitter;
+          const iy = src.y + (effect.y - src.y) * tSeg + (Math.random() - 0.5) * jitter;
+          if (s === 0) ctx.moveTo(ix - offsetX, iy - offsetY);
+          else ctx.lineTo(ix - offsetX, iy - offsetY);
+        }
+        ctx.stroke();
+        // inner filament
+        ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.85})`;
         ctx.lineWidth = 1.5;
         ctx.stroke();
-        ctx.fillStyle = `rgba(255,255,255,${alpha * 0.8})`;
+        // spark nodes along the path
+        const sparkCount = 6;
+        for (let i = 0; i < sparkCount; i += 1) {
+          const t = i / (sparkCount - 1);
+          const px = src.x + (effect.x - src.x) * t + (Math.random() - 0.5) * jitter * 0.5;
+          const py = src.y + (effect.y - src.y) * t + (Math.random() - 0.5) * jitter * 0.5;
+          const size = 3 + Math.random() * 2;
+          ctx.fillStyle = `rgba(255,255,255,${alpha * 0.9})`;
+          ctx.beginPath();
+          ctx.arc(px - offsetX, py - offsetY, size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = `rgba(120,190,255,${alpha * 0.6})`;
+          ctx.beginPath();
+          ctx.arc(px - offsetX, py - offsetY, size * 0.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "emberstorm": {
+        const progress = effect.progress || 0;
+        const radius = EMBER_CONE_RANGE * 0.5;
+        const sparks = 40;
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < sparks; i += 1) {
+          const angle = (Math.PI / 2 - EMBER_CONE_ANGLE) + (EMBER_CONE_ANGLE * 2 * (i / sparks));
+          const dist = radius * (0.3 + Math.random() * 0.7);
+          const wobble = Math.sin(animationTime * 0.01 + i) * 12;
+          const x = Math.cos(angle) * dist + wobble;
+          const y = Math.sin(angle) * dist + wobble * 0.3;
+          const size = 3 + Math.random() * 2;
+          const alpha = 0.6 * (1 - progress);
+          ctx.fillStyle = `rgba(255,170,90,${alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(x, y, size, size * 0.6, angle, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+      case "venomtide": {
+        const progress = effect.progress || 0;
+        const maxR = effect.maxRadius || VENOM_TIDE_RADIUS;
+        const radius = maxR * (0.2 + progress * 1.1);
+        ctx.globalCompositeOperation = "lighter";
+        const grad = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius);
+        grad.addColorStop(0, "rgba(110,220,150,0.4)");
+        grad.addColorStop(0.5, "rgba(90,180,140,0.25)");
+        grad.addColorStop(1, "rgba(60,130,100,0)");
+        ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.arc(effect.x - offsetX, effect.y - offsetY, 4, 0, Math.PI * 2);
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(160,255,200,0.55)";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.75, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "meteordrop": {
+        const pulse = 1 + Math.sin(animationTime * 0.008) * 0.08;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = "rgba(255,230,160,0.35)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 24 * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "meteorfall": {
+        const t = effect.progress || 0;
+        const trail = 30;
+        ctx.globalCompositeOperation = "lighter";
+        for (let i = 0; i < trail; i += 1) {
+          const p = i / trail;
+          const y = -CELL_SIZE * (1 - p) * (1 - t);
+          const alpha = 0.3 * (1 - p);
+          ctx.fillStyle = `rgba(255,200,150,${alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(0, y, 6, 12, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.fillStyle = "rgba(255,240,200,0.9)";
+        ctx.beginPath();
+        ctx.arc(0, -CELL_SIZE * 0.2 * (1 - t), 8, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "meteor-explosion": {
+        const p = effect.progress || 0;
+        const r = effect.radius || METEOR_DROP_BLAST_RADIUS;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(255,200,140,${0.6 * (1 - p)})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * (0.6 + p), 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "shadowstep": {
+        const p = effect.progress || 0;
+        const start = effect.start || { x: effect.x, y: effect.y };
+        const end = effect.end || { x: effect.x, y: effect.y };
+        const sx = start.x - offsetX;
+        const sy = start.y - offsetY;
+        const ex = end.x - offsetX;
+        const ey = end.y - offsetY;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = `rgba(200,200,255,${0.5 * (1 - p)})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        break;
+      }
+      case "stonewall": {
+        const p = effect.progress || 0;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = `rgba(200,200,200,${1 - p})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, (effect.radius || STONEWALL_RING_RADIUS) * (0.7 + 0.3 * p), 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "unlimeted-power": {
+        const progress = effect.progress || 0;
+        const pulse = 0.8 + Math.sin(animationTime * 0.006) * 0.2;
+        const maxR = 220;
+        const radius = maxR * (0.5 + pulse * 0.5);
+        ctx.globalCompositeOperation = "lighter";
+        const aura = ctx.createRadialGradient(0, 0, radius * 0.1, 0, 0, radius);
+        aura.addColorStop(0, "rgba(208,247,255,0.35)");
+        aura.addColorStop(0.45, "rgba(140,190,255,0.16)");
+        aura.addColorStop(1, "rgba(120,150,255,0)");
+        ctx.fillStyle = aura;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // rotating sigil arcs
+        const arcCount = 6;
+        for (let i = 0; i < arcCount; i += 1) {
+          const angle = animationTime * 0.003 + (Math.PI * 2 * i) / arcCount;
+          ctx.save();
+          ctx.rotate(angle);
+          ctx.strokeStyle = "rgba(255,255,255,0.55)";
+          ctx.lineWidth = 2.4;
+          ctx.beginPath();
+          ctx.arc(0, 0, radius * 0.4, -Math.PI / 6, Math.PI / 6);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        // radial bolt sprays (jagged, layered)
+        const boltFans = 9;
+        for (let i = 0; i < boltFans; i += 1) {
+          const baseAngle = animationTime * 0.0015 + (Math.PI * 2 * i) / boltFans;
+          const segments = 5;
+          ctx.strokeStyle = `rgba(208,247,255,${0.6 * (1 - progress)})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          for (let s = 0; s <= segments; s += 1) {
+            const t = s / segments;
+            const r = radius * (0.25 + t * 0.75);
+            const jitter = (Math.random() - 0.5) * 14;
+            const a = baseAngle + (Math.random() - 0.5) * 0.14;
+            const px = Math.cos(a) * r + Math.cos(baseAngle) * jitter;
+            const py = Math.sin(a) * r + Math.sin(baseAngle) * jitter;
+            if (s === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(255,255,255,${0.55 * (1 - progress)})`;
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+        }
+
+        // core flash
+        const corePulse = 1 - Math.abs(Math.sin(animationTime * 0.01));
+        ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.4 * corePulse})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 14 + corePulse * 6, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
@@ -7581,6 +8230,11 @@ function isWalkable(x, y, radius, shrink = 1) {
     { x: x - r, y: y + r },
     { x: x + r, y: y + r },
   ];
+  const blocksWall = stoneWalls.some((wall) => {
+    const dist = Math.hypot(wall.x - x, wall.y - y);
+    return dist < wall.radius + r;
+  });
+  if (blocksWall) return false;
   return points.every((point) => {
     const col = Math.floor(point.x / CELL_SIZE);
     const row = Math.floor(point.y / CELL_SIZE);
@@ -8391,12 +9045,13 @@ function findPathBetweenPoints(startX, startY, targetX, targetY) {
 }
 
 function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
-  const viableRooms = dungeonRooms.filter((room) => room.width > 3 && room.height > 3 && !room.isCorridor);
+  const viableRooms = dungeonRooms.filter((room) => room.width > 3 && room.height > 3);
   const roomList = viableRooms.length > 0 ? viableRooms : dungeonRooms;
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     const room = roomList[Math.floor(Math.random() * roomList.length)];
-    const tileX = room.x + 1 + Math.floor(Math.random() * Math.max(1, room.width - 2));
-    const tileY = room.y + 1 + Math.floor(Math.random() * Math.max(1, room.height - 2));
+    const padding = room.isCorridor ? 0 : 1;
+    const tileX = room.x + padding + Math.floor(Math.random() * Math.max(1, room.width - padding * 2));
+    const tileY = room.y + padding + Math.floor(Math.random() * Math.max(1, room.height - padding * 2));
     const snapped = snapTileToWalkable(tileX, tileY);
     if (!snapped) continue;
     const key = `${snapped.col},${snapped.row}`;
@@ -8411,7 +9066,7 @@ function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
     const x = snapped.col * CELL_SIZE + CELL_SIZE / 2;
     const y = snapped.row * CELL_SIZE + CELL_SIZE / 2;
     if (!isWalkable(x, y, 12, 0.7)) continue;
-    if (Math.hypot(x - player.x, y - player.y) >= minDistance) {
+    if (Math.hypot(x - player.x, y - player.y) >= minDistance * 0.6) {
       return { x, y, key };
     }
   }
@@ -8630,68 +9285,94 @@ function hasLineOfSight(ax, ay, bx, by) {
 }
 
 function renderShareCard(minutes, seconds) {
-  if (!shareCanvas) return;
-  const dpr = window.devicePixelRatio || 1;
+  if (!shareCanvas || !shareCtx) return;
+  const stats = {
+    level: state.level.toString().padStart(3, "0"),
+    time: `${minutes}:${seconds}`,
+    kills: state.kills.toString().padStart(3, "0"),
+  };
   const targetWidth = 600;
-  const targetHeight = 315;
-  if (shareCanvas.width !== targetWidth * dpr || shareCanvas.height !== targetHeight * dpr) {
-    shareCanvas.width = targetWidth * dpr;
-    shareCanvas.height = targetHeight * dpr;
-    shareCanvas.style.width = `${targetWidth}px`;
-    shareCanvas.style.height = `${targetHeight}px`;
+  const targetHeight = 360;
+  const drawCard = () => {
+    const dpr = window.devicePixelRatio || 1;
+    if (shareCanvas.width !== targetWidth * dpr || shareCanvas.height !== targetHeight * dpr) {
+      shareCanvas.width = targetWidth * dpr;
+      shareCanvas.height = targetHeight * dpr;
+      shareCanvas.style.width = `${targetWidth}px`;
+      shareCanvas.style.height = `${targetHeight}px`;
+    }
+    shareCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    shareCtx.clearRect(0, 0, targetWidth, targetHeight);
+    shareCtx.lineJoin = "round";
+
+    const backgroundGradient = shareCtx.createLinearGradient(0, 0, targetWidth, targetHeight);
+    backgroundGradient.addColorStop(0, "#0d0c14");
+    backgroundGradient.addColorStop(1, "#1a1326");
+    shareCtx.fillStyle = backgroundGradient;
+    shareCtx.fillRect(0, 0, targetWidth, targetHeight);
+
+    const frameGradient = shareCtx.createLinearGradient(0, 0, targetWidth, 0);
+    frameGradient.addColorStop(0, "#f7b44c");
+    frameGradient.addColorStop(1, "#7c5bff");
+    shareCtx.strokeStyle = "rgba(0,0,0,0.55)";
+    shareCtx.lineWidth = 12;
+    shareCtx.strokeRect(8.5, 8.5, targetWidth - 17, targetHeight - 17);
+    shareCtx.strokeStyle = frameGradient;
+    shareCtx.lineWidth = 8;
+    shareCtx.strokeRect(14.5, 14.5, targetWidth - 29, targetHeight - 29);
+
+    shareCtx.fillStyle = "rgba(255,255,255,0.04)";
+    shareCtx.fillRect(28, 28, targetWidth - 56, targetHeight - 56);
+    shareCtx.strokeStyle = "rgba(255,255,255,0.12)";
+    shareCtx.lineWidth = 2.5;
+    shareCtx.strokeRect(28.5, 28.5, targetWidth - 57, targetHeight - 57);
+
+    const titleY = targetHeight * 0.22;
+    shareCtx.fillStyle = "#f6f6f6";
+    shareCtx.textAlign = "center";
+    shareCtx.textBaseline = "middle";
+    shareCtx.shadowColor = "rgba(0,0,0,0.4)";
+    shareCtx.shadowBlur = 6;
+    shareCtx.font = "22px 'Press Start 2P', monospace";
+    shareCtx.fillText("ARCANE RUN: SURVIVAL", targetWidth / 2, titleY);
+    shareCtx.shadowBlur = 0;
+
+    const boxWidth = targetWidth - 200;
+    const boxHeight = 170;
+    const boxX = (targetWidth - boxWidth) / 2;
+    const boxY = targetHeight * 0.4;
+    shareCtx.fillStyle = "rgba(255,255,255,0.03)";
+    shareCtx.fillRect(boxX, boxY, boxWidth, boxHeight);
+    shareCtx.strokeStyle = "rgba(255,255,255,0.26)";
+    shareCtx.lineWidth = 3;
+    shareCtx.strokeRect(boxX + 0.5, boxY + 0.5, boxWidth - 1, boxHeight - 1);
+
+    shareCtx.font = "16px 'Press Start 2P', monospace";
+    const metrics = [
+      { label: "LEVEL", value: stats.level },
+      { label: "TIME", value: stats.time },
+      { label: "KILLS", value: stats.kills },
+    ];
+    const rowStart = boxY + 36;
+    const rowSpacing = 52;
+    metrics.forEach((metric, index) => {
+      const rowY = rowStart + rowSpacing * index;
+      shareCtx.fillStyle = "rgba(255,255,255,0.78)";
+      shareCtx.fillText(metric.label, targetWidth / 2, rowY - 12);
+      shareCtx.fillStyle = "#fce98f";
+      shareCtx.fillText(metric.value, targetWidth / 2, rowY + 12);
+    });
+
+    shareCtx.font = "12px 'Press Start 2P', monospace";
+    shareCtx.fillStyle = "rgba(255,255,255,0.7)";
+    const linkY = titleY + 24;
+    shareCtx.fillText("dungeon.quickpixel.games", targetWidth / 2, linkY);
+  };
+
+  drawCard();
+  if (document.fonts && document.fonts.status !== "loaded") {
+    document.fonts.ready.then(drawCard).catch(() => {});
   }
-  shareCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  shareCtx.clearRect(0, 0, targetWidth, targetHeight);
-  const width = targetWidth;
-  const height = targetHeight;
-  const backgroundGradient = shareCtx.createLinearGradient(0, 0, width, height);
-  backgroundGradient.addColorStop(0, "#0e0b18");
-  backgroundGradient.addColorStop(1, "#1b1024");
-  shareCtx.fillStyle = backgroundGradient;
-  shareCtx.fillRect(0, 0, width, height);
-
-  const frameGradient = shareCtx.createLinearGradient(0, 0, width, 0);
-  frameGradient.addColorStop(0, "rgba(255, 186, 72, 0.8)");
-  frameGradient.addColorStop(1, "rgba(146, 108, 255, 0.8)");
-  shareCtx.strokeStyle = frameGradient;
-  shareCtx.lineWidth = 8;
-  shareCtx.strokeRect(14, 14, width - 28, height - 28);
-
-  shareCtx.fillStyle = "rgba(255,255,255,0.05)";
-  shareCtx.fillRect(26, 26, width - 52, height - 52);
-
-  shareCtx.fillStyle = "#f2f2f2";
-  shareCtx.textAlign = "center";
-  shareCtx.textBaseline = "middle";
-  shareCtx.font = "34px 'Press Start 2P', monospace";
-  shareCtx.fillText("DUNGEON  RUN", width / 2, height * 0.2);
-
-  const boxWidth = width - 190;
-  const boxHeight = 170;
-  const boxX = (width - boxWidth) / 2;
-  const boxY = height * 0.4;
-  shareCtx.strokeStyle = "rgba(255,255,255,0.25)";
-  shareCtx.lineWidth = 3;
-  shareCtx.strokeRect(boxX, boxY, boxWidth, boxHeight);
-
-  shareCtx.font = "16px 'Press Start 2P', monospace";
-  const metrics = [
-    { label: "LEVEL", value: state.level.toString().padStart(3, "0") },
-    { label: "TIME", value: `${minutes}:${seconds}` },
-    { label: "KILLS", value: state.kills.toString().padStart(3, "0") },
-  ];
-  const rowSpacing = boxHeight / (metrics.length + 1.2);
-  metrics.forEach((metric, index) => {
-    const rowY = boxY + rowSpacing * (index + 1);
-    shareCtx.fillStyle = "rgba(255,255,255,0.75)";
-    shareCtx.fillText(metric.label, width / 2, rowY - 20);
-    shareCtx.fillStyle = "#fce98f";
-    shareCtx.fillText(metric.value, width / 2, rowY + 12);
-  });
-
-  shareCtx.font = "12px 'Press Start 2P', monospace";
-  shareCtx.fillStyle = "rgba(255,255,255,0.6)";
-  shareCtx.fillText("quickpixel.games", width / 2, height - 30);
 }
 
 function downloadShareImage() {
@@ -8707,7 +9388,11 @@ function downloadShareImage() {
 function loop(now) {
   const rawDelta = now - lastTimestamp;
   lastTimestamp = now;
-  const delta = Math.min(rawDelta, 32);
+  const timeScale = slowMotionTimer > 0 ? SLOW_MOTION_FACTOR : 1;
+  const delta = Math.min(rawDelta, 32) * timeScale;
+  if (slowMotionTimer > 0) {
+    slowMotionTimer = Math.max(0, slowMotionTimer - rawDelta);
+  }
   if (!state.paused) {
     animationTime += delta;
     update(delta);
@@ -8903,6 +9588,7 @@ function init() {
   setupMobile();
   renderSpellbook();
   updateCanvasSize();
+  updateHUD();
   requestAnimationFrame(loop);
 }
 
@@ -9049,15 +9735,16 @@ if (pauseBtn) {
 }
 
 restartBtn.addEventListener("click", resetGame);
+if (inlineRestartBtn) {
+  inlineRestartBtn.addEventListener("click", resetGame);
+}
 if (startOverlay) {
   startOverlay.removeAttribute("inert");
   startOverlay.setAttribute("aria-hidden", "false");
+  startOverlay.classList.remove("start-overlay--hidden");
 }
 if (startBtn) {
   startBtn.addEventListener("click", startGame);
-}
-if (startOverlay && startOverlay.classList.contains("start-overlay--hidden")) {
-  startGame();
 }
 if (shareBtn) shareBtn.addEventListener("click", downloadShareImage);
 
