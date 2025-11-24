@@ -41,6 +41,7 @@ let initialStart = false;
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
 let timeWarpTimer = 0;
 let slowMotionTimer = 0;
+let auraStrideTimer = 0;
 
 const BASE_PLAYER_MAX_HEALTH = 100;
 const STARTING_MANA = 30;
@@ -601,6 +602,8 @@ const player = {
   terrashieldArmorTimer: 0,
   terrashieldBurstPending: false,
   invulnerableTimer: 0,
+  radiantShield: 0,
+  radiantShieldTimer: 0,
 };
 
 const state = {
@@ -811,11 +814,11 @@ const SPELL_TYPES = [
   { id: "venomtide", label: "Venom Tide", rune: "venomtide", color: "#7cf2a3", desc: "Poison wave that damages over time.", defaultUnlocked: false },
   { id: "shadowstep", label: "Shadow Step", rune: "shadowstep", color: "#bca9ff", desc: "Blink forward, brief invisibility.", defaultUnlocked: false },
   { id: "stonewall", label: "Stonewall", rune: "stonewall", color: "#c8b48a", desc: "Raise barriers that block foes.", defaultUnlocked: false },
-  { id: "galeslice", label: "Gale Slice", rune: "galeslice", color: "#b6f0ff", desc: "Piercing wind blades in a line.", defaultUnlocked: false },
-  { id: "radiantaegis", label: "Radiant Aegis", rune: "radiantaegis", color: "#ffe79f", desc: "Temporary absorb shield and heal.", defaultUnlocked: false },
-  { id: "wardingroots", label: "Warding Roots", rune: "wardingroots", color: "#9bd48a", desc: "Roots snare and damage nearby foes.", defaultUnlocked: false },
-  { id: "aurastride", label: "Aura Stride", rune: "aurastride", color: "#9ff2ff", desc: "Aura that speeds allies and harms foes.", defaultUnlocked: false },
-  { id: "starlance", label: "Star Lance", rune: "starlance", color: "#ffe4ff", desc: "Long-range piercing beam.", defaultUnlocked: false },
+  { id: "galeslice", label: "Gale Slice", rune: "galeslice", color: "#b6f0ff", desc: "Piercing wind blades in a line.", defaultUnlocked: true },
+  { id: "radiantaegis", label: "Radiant Aegis", rune: "radiantaegis", color: "#ffe79f", desc: "Temporary absorb shield and heal.", defaultUnlocked: true },
+  { id: "wardingroots", label: "Warding Roots", rune: "wardingroots", color: "#9bd48a", desc: "Roots snare and damage nearby foes.", defaultUnlocked: true },
+  { id: "aurastride", label: "Aura Stride", rune: "aurastride", color: "#9ff2ff", desc: "Aura that speeds allies and harms foes.", defaultUnlocked: true },
+  { id: "starlance", label: "Star Lance", rune: "starlance", color: "#ffe4ff", desc: "Long-range piercing beam.", defaultUnlocked: true },
   { id: "voidpulse", label: "Void Pulse", rune: "voidpulse", color: "#c28cff", desc: "Pull foes inward then blast.", defaultUnlocked: false },
   { id: "mirrorveil", label: "Mirror Veil", rune: "mirrorveil", color: "#d6f0ff", desc: "Reflect a portion of incoming damage.", defaultUnlocked: false },
   { id: "glacialspear", label: "Glacial Spear", rune: "glacialspear", color: "#b5e5ff", desc: "Piercing spear that slows on hit.", defaultUnlocked: false },
@@ -872,6 +875,16 @@ const SPELL_SLOT_RUNES = {
     '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M10 22l6-12 6 12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M12 18h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=\"0.8\"/><circle cx="16" cy="12" r="2.4" fill="currentColor" opacity="0.4"/></svg>',
   stonewall:
     '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 12h16v10H8z" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M8 17h16M14 12v10M20 12v10" stroke="currentColor" stroke-width="1.6" opacity=\"0.85\"/></svg>',
+  galeslice:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 20c2-5 6-8 10-10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M10 14c3-2 6-3 12-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=\"0.8\"/><path d="M12 18l4-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  radiantaegis:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6l9 5v6c0 4-3.2 8-9 9-5.8-1-9-5-9-9v-6z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><circle cx="16" cy="16" r="3.2" fill="currentColor" opacity=\"0.25\"/><path d="M16 10v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  wardingroots:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M16 6v20" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/><path d="M10 16c1.8-1.6 3.6-2.2 6-2.2s4.2 0.6 6 2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M11 22c1-1.2 2.2-2 5-2s4 0.8 5 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  aurastride:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 16c0-3 3-6 6-6s6 3 6 6-3 6-6 6-6-3-6-6z" fill="none" stroke="currentColor" stroke-width="1.6" opacity=\"0.7\"/><path d="M12 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  starlance:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 16h12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 10l4 6-4 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="16" r="2.2" fill="currentColor" opacity=\"0.5\"/></svg>',
 };
 const SPELL_BLAST_RANGE_MULTIPLIER = 2;
 const SPELL_BLAST_DAMAGE_MULTIPLIER = 1.75;
@@ -940,6 +953,23 @@ const STONEWALL_SEGMENTS = 6;
 const STONEWALL_RADIUS = 22;
 const STONEWALL_RING_RADIUS = CELL_SIZE * 1.2;
 const STONEWALL_DURATION = 6500;
+const GALE_SLICE_RANGE = CELL_SIZE * 5;
+const GALE_SLICE_WIDTH = 26;
+const GALE_SLICE_COUNT = 3;
+const RADIANT_AEGIS_SHIELD = 140;
+const RADIANT_AEGIS_DURATION = 5200;
+const RADIANT_AEGIS_HEAL = 45;
+const WARDING_ROOTS_RADIUS = CELL_SIZE * 2.6;
+const WARDING_ROOTS_DURATION = 3600;
+const WARDING_ROOTS_DPS = 0.45;
+const WARDING_ROOTS_SLOW = 0.3;
+const AURA_STRIDE_RADIUS = CELL_SIZE * 2.4;
+const AURA_STRIDE_DURATION = 5200;
+const AURA_STRIDE_SPEED = 90;
+const AURA_STRIDE_DAMAGE = 0.32;
+const STAR_LANCE_RANGE = CELL_SIZE * 7.5;
+const STAR_LANCE_WIDTH = 24;
+const STAR_LANCE_DAMAGE = 2.2;
 const PREY_TYPES = [
   { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.24, radius: 14, groupMin: 1, groupMax: 2 },
   { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.20, radius: 14, groupMin: 1, groupMax: 2 },
@@ -1206,6 +1236,9 @@ function resetGame() {
   player.lastFacingX = 0;
   player.lastFacingY = 1;
   player.invulnerableTimer = 0;
+  auraStrideTimer = 0;
+  player.radiantShield = 0;
+  player.radiantShieldTimer = 0;
   rebuildWorldState({ refillSpellSlots: true, keepCompanions: false, keepAggroFlags: false });
   state.running = true;
   state.over = false;
@@ -2193,6 +2226,15 @@ function update(delta) {
   if (player.invulnerableTimer > 0) {
     player.invulnerableTimer = Math.max(0, player.invulnerableTimer - delta);
   }
+  if (player.radiantShieldTimer > 0) {
+    player.radiantShieldTimer = Math.max(0, player.radiantShieldTimer - delta);
+    if (player.radiantShieldTimer === 0) {
+      player.radiantShield = 0;
+    }
+  }
+  if (auraStrideTimer > 0) {
+    auraStrideTimer = Math.max(0, auraStrideTimer - delta);
+  }
   if (timeWarpTimer > 0) {
     timeWarpTimer = Math.max(0, timeWarpTimer - delta);
   }
@@ -2213,7 +2255,8 @@ function update(delta) {
     }
   } else {
     const warpBonus = timeWarpTimer > 0 ? 1.25 : 1;
-    player.speed = player.baseSpeed * warpBonus + currentCompanionBonus;
+    const auraBonus = auraStrideTimer > 0 ? AURA_STRIDE_SPEED : 0;
+    player.speed = player.baseSpeed * warpBonus + currentCompanionBonus + auraBonus;
     hasteTrailAccumulator = 0;
   }
   const deltaSeconds = delta / 1000;
@@ -2428,6 +2471,20 @@ function update(delta) {
   updatePrey(delta);
   updateStoneWalls(delta);
   updateMineralPockets(delta);
+
+  if (auraStrideTimer > 0) {
+    const auraDps = player.damage * AURA_STRIDE_DAMAGE;
+    enemies.forEach((enemy) => {
+      const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+      if (dist <= AURA_STRIDE_RADIUS) {
+        const dmg = auraDps * deltaSeconds;
+        enemy.health -= dmg;
+        if (Math.random() < 0.25) {
+          spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(dmg)), "enemy");
+        }
+      }
+    });
+  }
 
   enemies.forEach((enemy) => {
     const dxPlayer = player.x - enemy.x;
@@ -2775,6 +2832,11 @@ function update(delta) {
         let incomingDamage = enemy.damage;
         if (player.terrashieldArmorTimer > 0) {
           incomingDamage = Math.max(1, Math.ceil(incomingDamage * (1 - TERRASHIELD_ARMOR_REDUCTION)));
+        }
+        if (player.radiantShield > 0) {
+          const absorbed = Math.min(player.radiantShield, incomingDamage);
+          incomingDamage -= absorbed;
+          player.radiantShield -= absorbed;
         }
         player.health -= incomingDamage;
         spawnDamageNumber(player.x, player.y - player.radius * 1.4, incomingDamage, "player");
@@ -3421,11 +3483,11 @@ function useSpell(slotIndex) {
       playSfx("spell");
       castTimeWarpSpell();
       break;
-    case "chainlightning":
-      playSfx("spell");
-      castChainLightningSpell();
-      break;
-    case "emberstorm":
+  case "chainlightning":
+    playSfx("spell");
+    castChainLightningSpell();
+    break;
+  case "emberstorm":
       playSfx("spell");
       castEmberstormSpell();
       break;
@@ -3441,10 +3503,30 @@ function useSpell(slotIndex) {
       playSfx("spell");
       castShadowStepSpell();
       break;
-    case "stonewall":
-      playSfx("spell");
-      castStonewallSpell();
-      break;
+  case "stonewall":
+    playSfx("spell");
+    castStonewallSpell();
+    break;
+  case "galeslice":
+    playSfx("spell");
+    castGaleSliceSpell();
+    break;
+  case "radiantaegis":
+    playSfx("spell");
+    castRadiantAegisSpell();
+    break;
+  case "wardingroots":
+    playSfx("spell");
+    castWardingRootsSpell();
+    break;
+  case "aurastride":
+    playSfx("spell");
+    castAuraStrideSpell();
+    break;
+  case "starlance":
+    playSfx("spell");
+    castStarLanceSpell();
+    break;
     default:
       break;
   }
@@ -3831,6 +3913,140 @@ function castStonewallSpell() {
   showAchievement("Stonewall raised!");
 }
 
+function castGaleSliceSpell() {
+  const blades = [];
+  const baseAngle = Math.atan2(player.facingY || player.lastFacingY || 1, player.facingX || player.lastFacingX || 0);
+  for (let i = 0; i < GALE_SLICE_COUNT; i += 1) {
+    let targetAngle = baseAngle + (Math.random() - 0.5) * 0.2;
+    const nearest = enemies
+      .map((enemy) => ({
+        enemy,
+        dist: Math.hypot(enemy.x - player.x, enemy.y - player.y),
+        angle: Math.atan2(enemy.y - player.y, enemy.x - player.x),
+      }))
+      .filter((e) => e.dist < GALE_SLICE_RANGE * 1.2)
+      .sort((a, b) => a.dist - b.dist)[i];
+    if (nearest) {
+      targetAngle = nearest.angle + (Math.random() - 0.5) * 0.12;
+    }
+    blades.push({
+      angle: targetAngle,
+      length: GALE_SLICE_RANGE * (0.9 + Math.random() * 0.25),
+      width: GALE_SLICE_WIDTH * (0.8 + Math.random() * 0.4),
+    });
+  }
+  let hits = 0;
+  enemies.forEach((enemy) => {
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    blades.forEach((blade) => {
+      const proj = dx * Math.cos(blade.angle) + dy * Math.sin(blade.angle);
+      if (proj < 0 || proj > blade.length) return;
+      const perp = Math.abs(-Math.sin(blade.angle) * dx + Math.cos(blade.angle) * dy);
+      if (perp <= blade.width) {
+        const dmg = player.damage * 1.1;
+        enemy.health -= dmg;
+        spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dmg), "enemy");
+        enemy.slowTimer = Math.max(enemy.slowTimer || 0, 320);
+        enemy.slowFactor = Math.min(enemy.slowFactor || 1, 0.8);
+        hits += 1;
+      }
+    });
+  });
+  spellEffects.push({
+    type: "galeslice",
+    followPlayer: true,
+    duration: 520,
+    elapsed: 0,
+    blades,
+  });
+  spawnParticles(player.x, player.y, "#b6f0ff", 120, 14);
+  if (hits > 0) showAchievement(`Gale Slice cut ${hits} foe${hits === 1 ? "" : "s"}!`);
+}
+
+function castRadiantAegisSpell() {
+  player.radiantShield = RADIANT_AEGIS_SHIELD;
+  player.radiantShieldTimer = RADIANT_AEGIS_DURATION;
+  player.health = Math.min(player.maxHealth, player.health + RADIANT_AEGIS_HEAL);
+  spellEffects.push({
+    type: "radiantaegis",
+    followPlayer: true,
+    duration: RADIANT_AEGIS_DURATION,
+    elapsed: 0,
+  });
+  spawnParticles(player.x, player.y, "#ffe79f", 140, 18);
+  showAchievement("Radiant Aegis surrounds you!");
+}
+
+function castWardingRootsSpell() {
+  let hits = 0;
+  enemies.forEach((enemy) => {
+    const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+    if (dist > WARDING_ROOTS_RADIUS) return;
+    enemy.rootTimer = WARDING_ROOTS_DURATION;
+    enemy.rootDps = player.damage * WARDING_ROOTS_DPS;
+    hits += 1;
+  });
+  spellEffects.push({
+    type: "wardingroots",
+    followPlayer: true,
+    duration: WARDING_ROOTS_DURATION,
+    elapsed: 0,
+    radius: WARDING_ROOTS_RADIUS,
+  });
+  spawnParticles(player.x, player.y, "#9bd48a", 160, 16);
+  if (hits > 0) showAchievement(`Roots ensnared ${hits} foe${hits === 1 ? "" : "s"}!`);
+}
+
+function castAuraStrideSpell() {
+  auraStrideTimer = AURA_STRIDE_DURATION;
+  spellEffects.push({
+    type: "aurastride",
+    followPlayer: true,
+    duration: AURA_STRIDE_DURATION,
+    elapsed: 0,
+    radius: AURA_STRIDE_RADIUS,
+  });
+  spawnParticles(player.x, player.y, "#9ff2ff", 120, 14);
+  showAchievement("Aura Stride surges!");
+}
+
+function castStarLanceSpell() {
+  let angle = Math.atan2(player.facingY || player.lastFacingY || 1, player.facingX || player.lastFacingX || 0);
+  const target = enemies
+    .map((enemy) => ({
+      enemy,
+      dist: Math.hypot(enemy.x - player.x, enemy.y - player.y),
+      angle: Math.atan2(enemy.y - player.y, enemy.x - player.x),
+    }))
+    .filter((e) => e.dist < STAR_LANCE_RANGE * 1.1)
+    .sort((a, b) => a.dist - b.dist)[0];
+  if (target) angle = target.angle;
+  let hits = 0;
+  enemies.forEach((enemy) => {
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    const proj = dx * Math.cos(angle) + dy * Math.sin(angle);
+    if (proj < 0 || proj > STAR_LANCE_RANGE) return;
+    const perp = Math.abs(-Math.sin(angle) * dx + Math.cos(angle) * dy);
+    if (perp <= STAR_LANCE_WIDTH) {
+      const dmg = player.damage * STAR_LANCE_DAMAGE;
+      enemy.health -= dmg;
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dmg), "enemy");
+      hits += 1;
+    }
+  });
+  spellEffects.push({
+    type: "starlance",
+    followPlayer: true,
+    duration: 360,
+    elapsed: 0,
+    angle,
+  });
+  spawnParticles(player.x, player.y, "#ffe4ff", 90, 12);
+  if (hits > 0) showAchievement(`Star Lance pierced ${hits} foe${hits === 1 ? "" : "s"}!`);
+}
+
 function triggerFlameOrbExplosion(x, y, dmg = player.damage * 2) {
   enemies.forEach((enemy) => {
     const d = Math.hypot(enemy.x - x, enemy.y - y);
@@ -3964,6 +4180,7 @@ function draw() {
   drawPrey(cameraX, cameraY);
   drawEnemies(cameraX, cameraY);
   drawPlayer(cameraX, cameraY);
+  drawStoneWalls(cameraX, cameraY);
   drawSpellEffects(cameraX, cameraY);
   drawDamageNumbers(cameraX, cameraY);
   drawParticles(cameraX, cameraY);
@@ -4417,34 +4634,84 @@ function renderSpellRune(spellId) {
       ctx.arc(-0.4, 0.4, 0.35, 0, Math.PI * 2);
       ctx.stroke();
       break;
-    case "shadowstep":
-      ctx.lineWidth = 0.55;
-      ctx.beginPath();
-      ctx.moveTo(-1.4, 1.8);
-      ctx.lineTo(0, -2.0);
-      ctx.lineTo(1.4, 1.8);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-0.8, 0.4);
-      ctx.lineTo(0.8, 0.4);
-      ctx.stroke();
-      break;
-    case "stonewall":
-      ctx.lineWidth = 0.55;
-      ctx.beginPath();
-      ctx.rect(-1.6, -1.0, 3.2, 2.0);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-1.6, 0);
-      ctx.lineTo(1.6, 0);
-      ctx.moveTo(0, -1);
-      ctx.lineTo(0, 1);
-      ctx.stroke();
-      break;
-    default:
-      ctx.beginPath();
-      ctx.arc(0, 0, 1.0, 0, Math.PI * 2);
-      ctx.stroke();
+  case "shadowstep":
+    ctx.lineWidth = 0.55;
+    ctx.beginPath();
+    ctx.moveTo(-1.4, 1.8);
+    ctx.lineTo(0, -2.0);
+    ctx.lineTo(1.4, 1.8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-0.8, 0.4);
+    ctx.lineTo(0.8, 0.4);
+    ctx.stroke();
+    break;
+  case "stonewall":
+    ctx.lineWidth = 0.55;
+    ctx.beginPath();
+    ctx.rect(-1.6, -1.0, 3.2, 2.0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-1.6, 0);
+    ctx.lineTo(1.6, 0);
+    ctx.moveTo(0, -1);
+    ctx.lineTo(0, 1);
+    ctx.stroke();
+    break;
+  case "galeslice":
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-1.2, 1.6);
+    ctx.lineTo(0, -1.8);
+    ctx.lineTo(1.2, 1.6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-0.6, -0.2);
+    ctx.lineTo(0.6, -0.2);
+    ctx.stroke();
+    break;
+  case "radiantaegis":
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.0, Math.PI * 0.2, Math.PI * 1.8);
+    ctx.stroke();
+    break;
+  case "wardingroots":
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, 1.6);
+    ctx.lineTo(0, -1.6);
+    ctx.moveTo(-1.2, 0.6);
+    ctx.lineTo(1.2, 0.6);
+    ctx.moveTo(-0.8, -0.4);
+    ctx.lineTo(0.8, -0.4);
+    ctx.stroke();
+    break;
+  case "aurastride":
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-1.4, 0);
+    ctx.lineTo(1.4, 0);
+    ctx.stroke();
+    break;
+  case "starlance":
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-1.2, -1.2);
+    ctx.lineTo(1.6, 0);
+    ctx.lineTo(-1.2, 1.2);
+    ctx.stroke();
+    break;
+  default:
+    ctx.beginPath();
+    ctx.arc(0, 0, 1.0, 0, Math.PI * 2);
+    ctx.stroke();
       break;
   }
 }
@@ -4500,6 +4767,18 @@ function applyStatusDamage(enemy, deltaSeconds) {
     enemy.slowFactor = Math.min(enemy.slowFactor || 1, 0.7);
     if (Math.random() < 0.18) {
       spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(poisonDamage)), "enemy");
+    }
+  }
+  if (enemy.rootTimer && enemy.rootTimer > 0) {
+    const rootDps = enemy.rootDps || 0;
+    const rootDamage = rootDps * deltaSeconds;
+    enemy.health -= rootDamage;
+    enemy.rootTimer = Math.max(0, enemy.rootTimer - deltaSeconds * 1000);
+    enemy.freezeTimer = Math.max(enemy.freezeTimer || 0, 160);
+    enemy.slowTimer = Math.max(enemy.slowTimer || 0, 400);
+    enemy.slowFactor = Math.min(enemy.slowFactor || 1, WARDING_ROOTS_SLOW);
+    if (Math.random() < 0.22) {
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(rootDamage)), "enemy");
     }
   }
 }
@@ -7821,6 +8100,94 @@ function drawSpellEffects(offsetX, offsetY) {
           ctx.arc(px, py, wall.radius * 0.5, 0, Math.PI * 2);
           ctx.stroke();
         });
+        break;
+      }
+      case "galeslice": {
+        const blades = effect.blades || [];
+        ctx.globalCompositeOperation = "lighter";
+        blades.forEach((blade, idx) => {
+          const alpha = 0.8 * (1 - (effect.progress || 0));
+          ctx.strokeStyle = `rgba(200,230,255,${alpha})`;
+          ctx.lineWidth = 3 + Math.sin(animationTime * 0.01 + idx) * 0.6;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(blade.angle) * blade.length, Math.sin(blade.angle) * blade.length);
+          ctx.stroke();
+          ctx.strokeStyle = `rgba(255,255,255,${alpha * 0.6})`;
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+        });
+        break;
+      }
+      case "radiantaegis": {
+        const p = effect.progress || 0;
+        const radius = 70 + Math.sin(animationTime * 0.008) * 6;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = `rgba(255,240,200,${0.7 * (1 - p)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255,255,255,${0.12 * (1 - p)})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+      case "wardingroots": {
+        const p = effect.progress || 0;
+        const radius = effect.radius || WARDING_ROOTS_RADIUS;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.strokeStyle = `rgba(120,80,40,${0.6 * (1 - p)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * (0.8 + 0.2 * Math.sin(animationTime * 0.008)), 0, Math.PI * 2);
+        ctx.stroke();
+        const tendrils = 18;
+        for (let i = 0; i < tendrils; i += 1) {
+          const a = (Math.PI * 2 * i) / tendrils + Math.sin(animationTime * 0.003 + i) * 0.2;
+          const len = radius * (0.4 + Math.random() * 0.4);
+          ctx.strokeStyle = `rgba(90,160,90,${0.5 * (1 - p)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * radius * 0.5, Math.sin(a) * radius * 0.5);
+          ctx.lineTo(Math.cos(a) * len, Math.sin(a) * len);
+          ctx.stroke();
+        }
+        break;
+      }
+      case "aurastride": {
+        const p = effect.progress || 0;
+        const r = effect.radius || AURA_STRIDE_RADIUS;
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = `rgba(120,255,200,${0.2 * (1 - p)})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * (0.8 + 0.2 * Math.sin(animationTime * 0.01)), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(120,255,200,${0.5 * (1 - p)})`;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.8, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case "starlance": {
+        const p = effect.progress || 0;
+        const angle = effect.angle || 0;
+        const len = STAR_LANCE_RANGE * (1 - p * 0.1);
+        ctx.globalCompositeOperation = "lighter";
+        ctx.save();
+        ctx.rotate(angle);
+        ctx.strokeStyle = `rgba(220,240,255,${0.9 * (1 - p)})`;
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(len, 0);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - p)})`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+        ctx.restore();
         break;
       }
       case "unlimeted-power": {
