@@ -41,7 +41,9 @@ let initialStart = false;
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
 let timeWarpTimer = 0;
 let slowMotionTimer = 0;
+let lastSpellElement = "arcane";
 let auraStrideTimer = 0;
+let fogTimer = 0;
 
 const BASE_PLAYER_MAX_HEALTH = 100;
 const STARTING_MANA = 30;
@@ -896,6 +898,26 @@ const TERRASHIELD_ARMOR_DURATION = 3200;
 const TERRASHIELD_BURST_RADIUS = 140;
 const TERRASHIELD_DAMAGE_MULTIPLIER = 2.3;
 const TERRASHIELD_ARMOR_REDUCTION = 0.45;
+const SPELL_ELEMENTS = {
+  blast: "arcane",
+  heal: "radiant",
+  haste: "wind",
+  terrashield: "earth",
+  flameorb: "fire",
+  frostnova: "ice",
+  timewarp: "arcane",
+  chainlightning: "lightning",
+  emberstorm: "fire",
+  meteordrop: "fire",
+  venomtide: "poison",
+  shadowstep: "shadow",
+  stonewall: "earth",
+  galeslice: "wind",
+  radiantaegis: "radiant",
+  wardingroots: "nature",
+  aurastride: "aura",
+  starlance: "arcane",
+};
 const LIFEBLOOM_HEAL_RANGE = CELL_SIZE * 1.1;
 const COMPANION_BOND_DISTANCE = CELL_SIZE * 1.2;
 const LIFEBLOOM_FOLLOW_DISTANCE = CELL_SIZE * 0.55;
@@ -926,7 +948,12 @@ const TITAN_SPAWN_INTERVAL = 60000;
 let titanAccumulator = 0;
 const meatDrops = [];
 const meatUsedPositions = new Set();
+const rootedZones = [];
 const stoneWalls = [];
+let fogDistances = [];
+let fogMaxDistance = 0;
+let fogStartCell = null;
+let fogActive = false;
 const ENEMY_PREY_HEALTH_THRESHOLD = 0.3;
 const ENEMY_PREY_FEAST_HEAL = 60;
 const ENEMY_PREY_LOCK_DISTANCE = CELL_SIZE * 6;
@@ -953,6 +980,13 @@ const STONEWALL_SEGMENTS = 6;
 const STONEWALL_RADIUS = 22;
 const STONEWALL_RING_RADIUS = CELL_SIZE * 1.2;
 const STONEWALL_DURATION = 6500;
+const ROOTED_ZONE_DURATION = 5200;
+const ROOTED_ZONE_RADIUS = CELL_SIZE * 2.6;
+const ROOTED_ZONE_SLOW = 0.65;
+const ROOTED_ZONE_HEAL = 2;
+const FOG_START_TIME = 75000;
+const FOG_DAMAGE_PER_SECOND = 0.6;
+const FOG_EXPAND_RATE = 0.65; // tiles per second
 const GALE_SLICE_RANGE = CELL_SIZE * 5;
 const GALE_SLICE_WIDTH = 26;
 const GALE_SLICE_COUNT = 3;
@@ -1076,6 +1110,13 @@ function regenerateDungeonData() {
   decorations = dungeonData.decorations;
   grassPatches = dungeonData.grass || [];
   buildNavigationMesh();
+  fogTimer = 0;
+  fogActive = Math.random() < 0.45;
+  if (fogActive) {
+    buildFogField();
+  } else {
+    fogDistances = [];
+  }
 }
 
 function repositionPlayerAtSpawn() {
@@ -1116,6 +1157,8 @@ function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false, k
   meatUsedPositions.clear();
   spellUsedPositions.clear();
   preyList.length = 0;
+  rootedZones.length = 0;
+  fogTimer = 0;
   nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
   if (refillSpellSlots) {
     for (let i = 0; i < spellSlots.length; i += 1) {
@@ -1142,6 +1185,8 @@ function rebuildWorldState({ refillSpellSlots = false, keepCompanions = false, k
   companionSpeedBonus = 0;
   companionEchoAccumulator = 0;
   companionSpawnAccumulator = COMPANION_SPAWN_INTERVAL * 0.85;
+  rootedZones.length = 0;
+  fogTimer = 0;
   preyAccumulator = PREY_SPAWN_INTERVAL;
   ensuredPackPrey = false;
   ensuredGiantPrey = false;
@@ -1423,6 +1468,10 @@ function createEnemy() {
     slowTimer: 0,
     slowFactor: 1,
     freezeTimer: 0,
+    evadeTimer: 0,
+    evadeDirX: 0,
+    evadeDirY: 0,
+    resistElement: null,
   };
   if (template.lungeRange) {
     enemy.lungeRange = template.lungeRange;
@@ -1442,8 +1491,11 @@ function createEnemy() {
   if (enemy.behaviour === "sentry") {
     assignPatrolTarget(enemy);
   }
+  if (template.unlockMs === ELITE_ENEMY_UNLOCK_MS || ALWAYS_AGGRESSIVE_VARIANTS.has(template.id)) {
+    enemy.resistElement = lastSpellElement || null;
+  }
   enemies.push(enemy);
-    spawnParticles(enemy.x, enemy.y, template.color, 140, 20);
+  spawnParticles(enemy.x, enemy.y, template.color, 140, 20);
 }
 
 function createTitanEnemy() {
@@ -1515,6 +1567,7 @@ function createTitanEnemy() {
     slowTimer: 0,
     slowFactor: 1,
     freezeTimer: 0,
+    resistElement: null,
   };
   enemies.push(enemy);
   spawnParticles(enemy.x, enemy.y, template.color, 160, 26);
@@ -2471,6 +2524,7 @@ function update(delta) {
   updatePrey(delta);
   updateStoneWalls(delta);
   updateMineralPockets(delta);
+  updateRootedZones(delta);
 
   if (auraStrideTimer > 0) {
     const auraDps = player.damage * AURA_STRIDE_DAMAGE;
@@ -2478,12 +2532,35 @@ function update(delta) {
       const dist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
       if (dist <= AURA_STRIDE_RADIUS) {
         const dmg = auraDps * deltaSeconds;
-        enemy.health -= dmg;
+        const dealt = dealDamage(enemy, dmg, "aura");
         if (Math.random() < 0.25) {
-          spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(dmg)), "enemy");
+          spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.max(1, Math.round(dealt)), "enemy");
         }
       }
     });
+  }
+
+  fogTimer += delta;
+  if (fogActive && fogTimer >= FOG_START_TIME) {
+    const fogDelta = delta / 1000;
+    const coverage = ((fogTimer - FOG_START_TIME) / 1000) * FOG_EXPAND_RATE;
+    const playerCol = Math.floor(player.x / CELL_SIZE);
+    const playerRow = Math.floor(player.y / CELL_SIZE);
+    const fogDist =
+      playerCol >= 0 &&
+      playerRow >= 0 &&
+      playerCol < MAP_COLS &&
+      playerRow < MAP_ROWS
+        ? fogDistances[playerRow]?.[playerCol]
+        : Infinity;
+    if (fogDist !== undefined && fogDist <= coverage) {
+      const fogDamage = FOG_DAMAGE_PER_SECOND * fogDelta;
+      player.health -= fogDamage;
+      if (player.health <= 0) {
+        player.health = 0;
+        gameOver();
+      }
+    }
   }
 
   enemies.forEach((enemy) => {
@@ -2713,12 +2790,24 @@ function update(delta) {
         dirX = detour.x;
         dirY = detour.y;
       }
+      if (enemy.evadeTimer && enemy.evadeTimer > 0) {
+        enemy.evadeTimer = Math.max(0, enemy.evadeTimer - delta);
+        dirX = enemy.evadeDirX || dirX;
+        dirY = enemy.evadeDirY || dirY;
+        const len = Math.hypot(dirX, dirY) || 1;
+        dirX /= len;
+        dirY /= len;
+        usingPath = false;
+      }
       let moveSpeed = enemy.speed;
       let slowMultiplier = 1;
       if (enemy.freezeTimer && enemy.freezeTimer > 0) {
         slowMultiplier = 0;
       } else if (enemy.slowTimer && enemy.slowTimer > 0) {
         slowMultiplier = Math.max(0.2, enemy.slowFactor || 0.5);
+      }
+      if (enemy.evadeTimer && enemy.evadeTimer > 0) {
+        moveSpeed *= 1.35;
       }
       enemy.slowTimer = Math.max(0, (enemy.slowTimer || 0) - delta);
       enemy.freezeTimer = Math.max(0, (enemy.freezeTimer || 0) - delta);
@@ -2845,6 +2934,12 @@ function update(delta) {
         spawnParticles(player.x, player.y, "#f45d5d");
         playSfx("hurt");
         if (player.health <= 0) gameOver();
+        if (enemy.variant === "gnasher" || enemy.behaviour === "chaser") {
+          const len = distanceToPlayer || 1;
+          enemy.evadeDirX = -(dxPlayer / len);
+          enemy.evadeDirY = -(dyPlayer / len);
+          enemy.evadeTimer = 500;
+        }
       }
     }
   });
@@ -3070,6 +3165,35 @@ function updateStoneWalls(delta) {
       stoneWalls.splice(i, 1);
     }
   }
+}
+
+function updateRootedZones(delta) {
+  const deltaSeconds = delta / 1000;
+  for (let i = rootedZones.length - 1; i >= 0; i -= 1) {
+    const zone = rootedZones[i];
+    zone.duration -= delta;
+    if (zone.duration <= 0) {
+      rootedZones.splice(i, 1);
+    }
+  }
+  enemies.forEach((enemy) => {
+    rootedZones.forEach((zone) => {
+      const dist = Math.hypot(enemy.x - zone.x, enemy.y - zone.y);
+      if (dist < zone.radius) {
+        enemy.slowTimer = Math.max(enemy.slowTimer || 0, 260);
+        enemy.slowFactor = Math.min(enemy.slowFactor || 1, ROOTED_ZONE_SLOW);
+      }
+    });
+  });
+  rootedZones.forEach((zone) => {
+    const distPlayer = Math.hypot(player.x - zone.x, player.y - zone.y);
+    if (distPlayer < zone.radius) {
+      player.health = Math.min(player.maxHealth, player.health + ROOTED_ZONE_HEAL * deltaSeconds);
+      if (player.radiantShieldTimer > 0) {
+        player.radiantShield = Math.min(player.radiantShield + 2 * deltaSeconds, RADIANT_AEGIS_SHIELD);
+      }
+    }
+  });
 }
 
 function updateGrass(delta) {
@@ -3453,6 +3577,7 @@ function useSpell(slotIndex) {
   if (slotIndex < 0 || slotIndex >= spellSlots.length) return;
   const spellId = spellSlots[slotIndex];
   if (!spellId) return;
+  lastSpellElement = SPELL_ELEMENTS[spellId] || lastSpellElement;
   clearSpellSlot(slotIndex);
   switch (spellId) {
     case "blast":
@@ -3738,9 +3863,10 @@ function castEmberstormSpell() {
     const burnDps = player.damage * EMBER_BURN_DPS;
     enemy.burnTimer = EMBER_BURN_DURATION;
     enemy.burnDps = burnDps;
+    enemy.burnElement = "fire";
     const upfront = player.damage * 0.4;
-    enemy.health -= upfront;
-    spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(upfront), "enemy");
+    const dealt = dealDamage(enemy, upfront, "fire");
+    spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
     hits += 1;
   });
   spellEffects.push({
@@ -3771,9 +3897,10 @@ function castVenomTideSpell() {
     if (dist > radius) return;
     enemy.poisonTimer = VENOM_POISON_DURATION;
     enemy.poisonDps = player.damage * VENOM_POISON_DPS;
+    enemy.poisonElement = "poison";
     const upfront = player.damage * 0.25;
-    enemy.health -= upfront;
-    spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(upfront), "enemy");
+    const dealt = dealDamage(enemy, upfront, "poison");
+    spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
     enemy.slowTimer = Math.max(enemy.slowTimer || 0, 1400);
     enemy.slowFactor = Math.min(enemy.slowFactor || 1, 0.6);
     hits += 1;
@@ -3827,14 +3954,14 @@ function castMeteorDropSpell() {
 }
 
 function triggerMeteorImpact(effect) {
-  enemies.forEach((enemy) => {
-    const dist = Math.hypot(enemy.x - effect.x, enemy.y - effect.y);
-    if (dist <= effect.radius) {
-      const dmg = player.damage * 1.6;
-      enemy.health -= dmg;
-      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dmg), "enemy");
-    }
-  });
+    enemies.forEach((enemy) => {
+      const dist = Math.hypot(enemy.x - effect.x, enemy.y - effect.y);
+      if (dist <= effect.radius) {
+        const dmg = player.damage * 1.6;
+        const dealt = dealDamage(enemy, dmg, "fire");
+        spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
+      }
+    });
   spellEffects.push({
     type: "meteor-explosion",
     x: effect.x,
@@ -3985,6 +4112,7 @@ function castWardingRootsSpell() {
     if (dist > WARDING_ROOTS_RADIUS) return;
     enemy.rootTimer = WARDING_ROOTS_DURATION;
     enemy.rootDps = player.damage * WARDING_ROOTS_DPS;
+    enemy.rootElement = "nature";
     hits += 1;
   });
   spellEffects.push({
@@ -3996,6 +4124,19 @@ function castWardingRootsSpell() {
   });
   spawnParticles(player.x, player.y, "#9bd48a", 160, 16);
   if (hits > 0) showAchievement(`Roots ensnared ${hits} foe${hits === 1 ? "" : "s"}!`);
+  rootedZones.push({
+    x: player.x,
+    y: player.y,
+    radius: ROOTED_ZONE_RADIUS,
+    duration: ROOTED_ZONE_DURATION,
+    vines: Array.from({ length: 28 }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      len: ROOTED_ZONE_RADIUS * (0.3 + Math.random() * 0.7),
+      wobble: (Math.random() - 0.5) * 0.3,
+      width: 4 + Math.random() * 4,
+      color: Math.random() < 0.5 ? "#5b7f4a" : "#78a85a",
+    })),
+  });
 }
 
 function castAuraStrideSpell() {
@@ -4173,6 +4314,7 @@ function draw() {
   drawDecorations(cameraX, cameraY);
   drawMineralPockets(cameraX, cameraY);
   drawStoneWalls(cameraX, cameraY);
+  drawRootedZones(cameraX, cameraY);
   drawMana(cameraX, cameraY);
   drawHealth(cameraX, cameraY);
   drawSpells(cameraX, cameraY);
@@ -4184,7 +4326,7 @@ function draw() {
   drawSpellEffects(cameraX, cameraY);
   drawDamageNumbers(cameraX, cameraY);
   drawParticles(cameraX, cameraY);
-  drawFog();
+  drawFog(cameraX, cameraY);
   if (isMobile) drawCanvasHUD();
   drawMinimap();
   drawLevelTransitionOverlay();
@@ -4308,6 +4450,44 @@ function drawStoneWalls(offsetX, offsetY) {
     ctx.beginPath();
     ctx.rect(-wall.radius * 0.8, -wall.radius, wall.radius * 1.6, wall.radius * 1.4);
     ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
+function drawRootedZones(offsetX, offsetY) {
+  rootedZones.forEach((zone) => {
+    const px = zone.x - offsetX;
+    const py = zone.y - offsetY;
+    const lifeRatio = Math.max(0, zone.duration / ROOTED_ZONE_DURATION);
+    const pulse = 0.8 + Math.sin(animationTime * 0.01 + lifeRatio) * 0.12;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.globalCompositeOperation = "lighter";
+    const grad = ctx.createRadialGradient(0, 0, zone.radius * 0.2, 0, 0, zone.radius);
+    grad.addColorStop(0, `rgba(100,160,100,${0.4 * lifeRatio})`);
+    grad.addColorStop(1, "rgba(60,100,60,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, zone.radius * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    // vines
+    const vines = zone.vines || [];
+    vines.forEach((v, idx) => {
+      ctx.strokeStyle = `${v.color}cc`;
+      ctx.lineWidth = v.width * (0.6 + 0.4 * lifeRatio);
+      ctx.beginPath();
+      const wiggle = Math.sin(animationTime * 0.006 + idx) * v.wobble * zone.radius;
+      const endX = Math.cos(v.angle) * v.len + wiggle;
+      const endY = Math.sin(v.angle) * v.len + wiggle * 0.5;
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(endX * 0.4, endY * 0.4, endX, endY);
+      ctx.stroke();
+    });
+    ctx.strokeStyle = `rgba(150,220,150,${0.5 * lifeRatio})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, zone.radius * 0.85, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   });
@@ -4751,7 +4931,7 @@ function spawnDamageNumber(x, y, amount, target = "enemy", options = {}) {
 function applyStatusDamage(enemy, deltaSeconds) {
   if (enemy.burnTimer && enemy.burnTimer > 0) {
     const burnDps = enemy.burnDps || 0;
-    const burnDamage = burnDps * deltaSeconds;
+    const burnDamage = burnDps * deltaSeconds * getResistMultiplier(enemy, enemy.burnElement || "fire");
     enemy.health -= burnDamage;
     enemy.burnTimer = Math.max(0, enemy.burnTimer - deltaSeconds * 1000);
     if (Math.random() < 0.2) {
@@ -4760,7 +4940,7 @@ function applyStatusDamage(enemy, deltaSeconds) {
   }
   if (enemy.poisonTimer && enemy.poisonTimer > 0) {
     const poisonDps = enemy.poisonDps || 0;
-    const poisonDamage = poisonDps * deltaSeconds;
+    const poisonDamage = poisonDps * deltaSeconds * getResistMultiplier(enemy, enemy.poisonElement || "poison");
     enemy.health -= poisonDamage;
     enemy.poisonTimer = Math.max(0, enemy.poisonTimer - deltaSeconds * 1000);
     enemy.slowTimer = Math.max(enemy.slowTimer || 0, 320);
@@ -4771,7 +4951,7 @@ function applyStatusDamage(enemy, deltaSeconds) {
   }
   if (enemy.rootTimer && enemy.rootTimer > 0) {
     const rootDps = enemy.rootDps || 0;
-    const rootDamage = rootDps * deltaSeconds;
+    const rootDamage = rootDps * deltaSeconds * getResistMultiplier(enemy, enemy.rootElement || "nature");
     enemy.health -= rootDamage;
     enemy.rootTimer = Math.max(0, enemy.rootTimer - deltaSeconds * 1000);
     enemy.freezeTimer = Math.max(enemy.freezeTimer || 0, 160);
@@ -4785,6 +4965,18 @@ function applyStatusDamage(enemy, deltaSeconds) {
 
 function spawnHealNumber(x, y, amount = 1) {
   spawnDamageNumber(x, y, amount, "player", { variant: "heal" });
+}
+
+function getResistMultiplier(enemy, element) {
+  if (!element || !enemy.resistElement) return 1;
+  return enemy.resistElement === element ? 0.6 : 1;
+}
+
+function dealDamage(enemy, amount, element) {
+  const multiplier = getResistMultiplier(enemy, element);
+  const dmg = amount * multiplier;
+  enemy.health -= dmg;
+  return dmg;
 }
 
 function spawnFootstepMark(leftSide) {
@@ -8439,7 +8631,8 @@ function drawParticles(offsetX, offsetY) {
   });
 }
 
-function drawFog() {
+function drawFog(cameraX, cameraY) {
+  // subtle dark vignette
   const gradient = ctx.createRadialGradient(
     VIEWPORT.width / 2,
     VIEWPORT.height / 2,
@@ -8449,9 +8642,38 @@ function drawFog() {
     VIEWPORT.width / 1.2
   );
   gradient.addColorStop(0, "rgba(0,0,0,0)");
-  gradient.addColorStop(1, "rgba(0,0,0,0.78)");
+  gradient.addColorStop(1, "rgba(0,0,0,0.6)");
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, VIEWPORT.width, VIEWPORT.height);
+
+  if (!fogActive || fogTimer < FOG_START_TIME || !fogDistances.length) return;
+  const elapsed = fogTimer - FOG_START_TIME;
+  const coverage = (elapsed / 1000) * FOG_EXPAND_RATE;
+  const baseAlpha = 0.35;
+  const noiseTime = animationTime * 0.001;
+
+  for (let row = 0; row < MAP_ROWS; row += 1) {
+    for (let col = 0; col < MAP_COLS; col += 1) {
+      const dist = fogDistances[row]?.[col];
+      if (dist == null || !Number.isFinite(dist)) continue;
+      if (dist > coverage + 1.6) continue;
+      const local = Math.max(0, Math.min(1, 1 - (dist - coverage)));
+      const jitterX = (Math.sin(col * 0.6 + noiseTime * 1.3) + Math.cos(row * 0.5 + noiseTime * 0.9)) * 6;
+      const jitterY = (Math.cos(col * 0.7 + noiseTime * 1.1) + Math.sin(row * 0.6 + noiseTime * 1.2)) * 6;
+      const centerX = col * CELL_SIZE + CELL_SIZE / 2 - cameraX + jitterX;
+      const centerY = row * CELL_SIZE + CELL_SIZE / 2 - cameraY + jitterY;
+      const radius = CELL_SIZE * (0.8 + local * 0.6);
+      const alpha = Math.max(0, Math.min(baseAlpha, baseAlpha * local));
+      if (alpha < 0.02) continue;
+      const fog = ctx.createRadialGradient(centerX, centerY, radius * 0.2, centerX, centerY, radius);
+      fog.addColorStop(0, `rgba(255,255,255,${alpha * 0.7})`);
+      fog.addColorStop(1, `rgba(255,255,255,0)`);
+      ctx.fillStyle = fog;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
 }
 
 function drawMinimap() {
@@ -9539,6 +9761,47 @@ function generatePickupLocation(minDistance = MIN_PICKUP_DISTANCE) {
     y: fallbackRow * CELL_SIZE + CELL_SIZE / 2,
     key: `${fallbackCol},${fallbackRow}`,
   };
+}
+
+function buildFogField() {
+  fogDistances = Array.from({ length: MAP_ROWS }, () => Array(MAP_COLS).fill(Infinity));
+  fogMaxDistance = 0;
+  const start = findFogStartCell() || { col: spawnPoint.x, row: spawnPoint.y };
+  fogStartCell = start;
+  const queue = [];
+  const push = (col, row, dist) => {
+    if (col < 0 || row < 0 || col >= MAP_COLS || row >= MAP_ROWS) return;
+    if (fogDistances[row][col] <= dist) return;
+    if (dungeonGrid[row][col] === 0) return;
+    fogDistances[row][col] = dist;
+    fogMaxDistance = Math.max(fogMaxDistance, dist);
+    queue.push({ col, row, dist });
+  };
+  push(start.col, start.row, 0);
+  while (queue.length) {
+    const { col, row, dist } = queue.shift();
+    const next = dist + 1;
+    push(col + 1, row, next);
+    push(col - 1, row, next);
+    push(col, row + 1, next);
+    push(col, row - 1, next);
+  }
+}
+
+function findFogStartCell() {
+  const candidates = [
+    { col: 1, row: 1 },
+    { col: MAP_COLS - 2, row: 1 },
+    { col: 1, row: MAP_ROWS - 2 },
+    { col: MAP_COLS - 2, row: MAP_ROWS - 2 },
+  ];
+  for (let i = 0; i < candidates.length; i += 1) {
+    const snap = snapTileToWalkable(candidates[i].col, candidates[i].row);
+    if (snap) return { col: snap.col, row: snap.row };
+  }
+  const snap = snapTileToWalkable(spawnPoint.x, spawnPoint.y);
+  if (snap) return { col: snap.col, row: snap.row };
+  return null;
 }
 
 function generateMineralLocation(usedKeys) {
