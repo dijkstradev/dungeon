@@ -223,6 +223,23 @@ body {
   display: block;
 }
 
+.boss-banner {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border: 2px solid #f9d64c;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #f9d64c;
+  font-size: 12px;
+  letter-spacing: 0.4px;
+  display: none;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
 #minimap {
   position: absolute;
   top: 16px;
@@ -496,7 +513,7 @@ body {
 
 .spellbook-item__desc {
   font-family: "Press Start 2P", monospace;
-  font-size: 10px;
+  font-size: 9px;
   color: #cfd3d9;
   line-height: 1.4;
 }

@@ -36,6 +36,7 @@ const spellbookClose = document.getElementById("spellbook-close");
 const startOverlay = document.getElementById("start-overlay");
 const startBtn = document.getElementById("start-btn");
 const inlineRestartBtn = document.getElementById("inline-restart-btn");
+const bossBanner = document.getElementById("boss-banner");
 let spellSlotEls = Array.from(document.querySelectorAll(".spell-slot"));
 let initialStart = false;
 let isMobile = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 768;
@@ -70,6 +71,8 @@ const LEVEL_TRANSITION_DURATION = 600;
 const LEVEL_ELITE_UNLOCK = 5;
 const SLOW_MOTION_FACTOR = 0.35;
 const SLOW_MOTION_DURATION = 2000;
+const BOSS_LEVELS = new Set([3, 6, 9, 12]);
+const MAX_BOSS_LEVEL = 12;
 
 const VIEWPORT = { width: canvas.width, height: canvas.height };
 const MAP_BASE_COLS = 30;
@@ -78,6 +81,8 @@ const MAP_GROWTH_STEP = 4;
 const MAP_LEVEL1_BONUS = 6;
 let MAP_COLS = MAP_BASE_COLS;
 let MAP_ROWS = MAP_BASE_ROWS;
+
+const bossLevels = (level) => BOSS_LEVELS.has(level);
 const CELL_SIZE = 96;
 const PATH_NODE_REACH_DISTANCE = CELL_SIZE * 0.42;
 const PATH_RECALC_INTERVAL = 320;
@@ -294,6 +299,10 @@ const DECOR_ANIM_SETTINGS = {
   floor_rune_ember: { base: 0.93, alpha: 0.05, wobble: 0.14 },
   floor_rune_tide: { base: 0.92, alpha: 0.05, wobble: 0.12 },
   floor_rune_verdant: { base: 0.93, alpha: 0.05, wobble: 0.16 },
+  voidpulse:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 12c1.6-1.6 3.4-2.2 6-2.2s4.4 0.6 6 2.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 18c1 1 2.2 1.4 4 1.4s3-0.4 4-1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.8"/><circle cx="16" cy="16" r="2.2" fill="currentColor" opacity="0.35"/></svg>',
+  voidpulse:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 12c1.6-1.6 3.4-2.2 6-2.2s4.4 0.6 6 2.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 18c1 1 2.2 1.4 4 1.4s3-0.4 4-1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.8"/><circle cx="16" cy="16" r="2.2" fill="currentColor" opacity="0.35"/></svg>',
 };
 
 const DECOR_GROUPS = {
@@ -358,7 +367,7 @@ let grassPatches = dungeonData.grass || [];
 const mineralPockets = [];
 let mineralCount = 0;
 const unlockedSpells = new Set();
-let starterSpells = ["blast", "heal", "haste"];
+let starterSpells = ["blast", "heal", "haste", "terrashield", "galeslice"];
 
 let audioCtx = null;
 let musicTimer = null;
@@ -455,6 +464,7 @@ function playTone(freq, duration, startTime = 0, { type = "sine", volume = 0.12,
 function startBackgroundMusic() {
   const ctx = ensureAudioCtx();
   if (musicTimer) return;
+  bossMusic = false;
   const bpm = 84;
   const beat = 60 / bpm;
   const scale = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25];
@@ -488,6 +498,39 @@ function startBackgroundMusic() {
   };
   playMeasure();
   musicTimer = setInterval(playMeasure, beat * 1000 * 4);
+}
+
+function stopMusic() {
+  if (musicTimer) {
+    clearInterval(musicTimer);
+    musicTimer = null;
+  }
+}
+
+function startBossMusic() {
+  const ctx = ensureAudioCtx();
+  stopMusic();
+  const bpm = 96;
+  const beat = 60 / bpm;
+  const scale = [196.0, 220.0, 261.63, 293.66, 329.63, 349.23];
+  const pattern = [0, 2, 5, 3, 4, 1, 5, 2];
+  const bass = [98.0, 110.0, 87.31, 73.42];
+  const playMeasure = () => {
+    const baseTime = ctx.currentTime + 0.02;
+    for (let i = 0; i < pattern.length; i += 1) {
+      const t = baseTime + i * beat * 0.5;
+      const note = scale[pattern[(musicStep + i) % pattern.length]];
+      playTone(note, beat * 0.32, t - ctx.currentTime, { type: "sawtooth", volume: 0.06, pan: -0.08 + Math.random() * 0.16 });
+      if (i % 2 === 0) {
+        const b = bass[(musicStep + i) % bass.length];
+        playTone(b, beat * 0.48, t - ctx.currentTime, { type: "square", volume: 0.04, pan: 0 });
+      }
+    }
+    musicStep = (musicStep + 1) % pattern.length;
+  };
+  playMeasure();
+  musicTimer = setInterval(playMeasure, beat * 1000 * 4);
+  bossMusic = true;
 }
 
 function loadMineralCount() {
@@ -526,11 +569,16 @@ function loadStarterSpells() {
     const stored = localStorage.getItem("dungeon_starter_spells");
     if (!stored) return;
     const list = JSON.parse(stored);
-    if (Array.isArray(list) && list.length >= 3) {
+    if (Array.isArray(list) && list.length >= 1) {
       starterSpells = list;
     }
   } catch (error) {
     // ignore
+  }
+  if (typeof spellSlots !== "undefined") {
+    while (starterSpells.length < spellSlots.length) {
+      starterSpells.push(null);
+    }
   }
 }
 
@@ -619,6 +667,9 @@ const state = {
   levelTimer: 0,
 };
 
+let activeBoss = null;
+let bossMusic = false;
+
 let manualPauseActive = false;
 let infoPauseActive = false;
 let visibilityPauseActive = false;
@@ -647,7 +698,7 @@ const joystickState = {
 };
 
 let nextSpellSpawnIndex = 0;
-const spellSlots = [null, null, null];
+const spellSlots = [null, null, null, null, null];
 
 const enemies = [];
 let spawnAccumulator = 0;
@@ -786,6 +837,61 @@ const TITAN_TEMPLATE = {
   color: "#ff4d94",
 };
 
+const BOSS_TYPES = [
+  {
+    id: "ember_colossus",
+    name: "Ember Colossus",
+    color: "#ff7b3d",
+    health: 3200,
+    damage: 42,
+    speed: 95,
+    lungeRange: CELL_SIZE * 1.4,
+    lungeCooldown: 2200,
+    lungeDuration: 360,
+    lungeSpeedMultiplier: 3.4,
+    attacks: { slam: true, flameWake: true },
+  },
+  {
+    id: "frost_warden",
+    name: "Frost Warden",
+    color: "#9edbff",
+    health: 3400,
+    damage: 38,
+    speed: 90,
+    lungeRange: CELL_SIZE * 1.2,
+    lungeCooldown: 2600,
+    lungeDuration: 320,
+    lungeSpeedMultiplier: 2.8,
+    attacks: { iceNova: true, shardBarrage: true },
+  },
+  {
+    id: "void_marrow",
+    name: "Void Marrow",
+    color: "#c28cff",
+    health: 3600,
+    damage: 46,
+    speed: 100,
+    lungeRange: CELL_SIZE * 1.6,
+    lungeCooldown: 2400,
+    lungeDuration: 340,
+    lungeSpeedMultiplier: 3.6,
+    attacks: { pull: true, beam: true },
+  },
+  {
+    id: "stone_tyrant",
+    name: "Stone Tyrant",
+    color: "#c4b48a",
+    health: 3800,
+    damage: 50,
+    speed: 85,
+    lungeRange: CELL_SIZE * 1.3,
+    lungeCooldown: 2800,
+    lungeDuration: 360,
+    lungeSpeedMultiplier: 3.0,
+    attacks: { spikes: true, quake: true },
+  },
+];
+
 const TITAN_LUNGE_RANGE = CELL_SIZE * 1.6;
 const TITAN_LUNGE_COOLDOWN = 3000;
 const TITAN_LUNGE_DURATION = 420;
@@ -803,38 +909,38 @@ const spellDrops = [];
 const SPELL_RESPAWN = 6500;
 let spellAccumulator = SPELL_RESPAWN;
 const SPELL_TYPES = [
-  { id: "blast", label: "Arc Blast", rune: "blast", color: "#f9d64c", desc: "Big burst, double staff range.", defaultUnlocked: true },
-  { id: "heal", label: "Sanctify", rune: "heal", color: "#8ef9ff", desc: "Full heal with radiant pulse.", defaultUnlocked: true },
-  { id: "haste", label: "Swiftstep", rune: "haste", color: "#b0ff6a", desc: "Speed boost for 15 seconds.", defaultUnlocked: true },
-  { id: "terrashield", label: "Terrashield", rune: "terrashield", color: "#8cff8a", desc: "Rooted shield, burst and armor.", defaultUnlocked: true },
-  { id: "flameorb", label: "Flame Orb", rune: "flameorb", color: "#ffb347", desc: "Homing fireballs explode on impact.", defaultUnlocked: false },
-  { id: "frostnova", label: "Frost Nova", rune: "frostnova", color: "#9edbff", desc: "Freeze burst slows foes; shards ricochet.", defaultUnlocked: false },
-  { id: "timewarp", label: "Time Warp", rune: "timewarp", color: "#e2c6ff", desc: "Slow enemies, speed yourself briefly.", defaultUnlocked: false },
-  { id: "chainlightning", label: "Unlimeted Power", rune: "chainlightning", color: "#d0f7ff", desc: "Surging bolts blast forward, zapping foes in sight.", defaultUnlocked: false },
-  { id: "emberstorm", label: "Emberstorm", rune: "emberstorm", color: "#ff8a5c", desc: "Cone of embers that ignite over time.", defaultUnlocked: false },
-  { id: "meteordrop", label: "Meteor Drop", rune: "meteordrop", color: "#ff6b6b", desc: "Small meteors rain in a circle.", defaultUnlocked: false },
-  { id: "venomtide", label: "Venom Tide", rune: "venomtide", color: "#7cf2a3", desc: "Poison wave that damages over time.", defaultUnlocked: false },
-  { id: "shadowstep", label: "Shadow Step", rune: "shadowstep", color: "#bca9ff", desc: "Blink forward, brief invisibility.", defaultUnlocked: false },
-  { id: "stonewall", label: "Stonewall", rune: "stonewall", color: "#c8b48a", desc: "Raise barriers that block foes.", defaultUnlocked: false },
-  { id: "galeslice", label: "Gale Slice", rune: "galeslice", color: "#b6f0ff", desc: "Piercing wind blades in a line.", defaultUnlocked: true },
-  { id: "radiantaegis", label: "Radiant Aegis", rune: "radiantaegis", color: "#ffe79f", desc: "Temporary absorb shield and heal.", defaultUnlocked: true },
-  { id: "wardingroots", label: "Warding Roots", rune: "wardingroots", color: "#9bd48a", desc: "Roots snare and damage nearby foes.", defaultUnlocked: true },
-  { id: "aurastride", label: "Aura Stride", rune: "aurastride", color: "#9ff2ff", desc: "Aura that speeds allies and harms foes.", defaultUnlocked: true },
-  { id: "starlance", label: "Star Lance", rune: "starlance", color: "#ffe4ff", desc: "Long-range piercing beam.", defaultUnlocked: true },
-  { id: "voidpulse", label: "Void Pulse", rune: "voidpulse", color: "#c28cff", desc: "Pull foes inward then blast.", defaultUnlocked: false },
-  { id: "mirrorveil", label: "Mirror Veil", rune: "mirrorveil", color: "#d6f0ff", desc: "Reflect a portion of incoming damage.", defaultUnlocked: false },
-  { id: "glacialspear", label: "Glacial Spear", rune: "glacialspear", color: "#b5e5ff", desc: "Piercing spear that slows on hit.", defaultUnlocked: false },
-  { id: "stormbarrier", label: "Storm Barrier", rune: "stormbarrier", color: "#9dc7ff", desc: "Orbiting bolts block and zap.", defaultUnlocked: false },
-  { id: "lifesurge", label: "Life Surge", rune: "lifesurge", color: "#9cffc7", desc: "Regen boost and cleanse debuffs.", defaultUnlocked: false },
-  { id: "arcburst", label: "Arc Burst", rune: "arcburst", color: "#ffd58f", desc: "Short-range arc shotgun blast.", defaultUnlocked: false },
-  { id: "mistveil", label: "Mist Veil", rune: "mistveil", color: "#c7e8ff", desc: "Become translucent, avoid one hit.", defaultUnlocked: false },
-  { id: "gravitywell", label: "Gravity Well", rune: "gravitywell", color: "#9ab0ff", desc: "Drop a slowing well that sucks foes.", defaultUnlocked: false },
-  { id: "emberdash", label: "Ember Dash", rune: "emberdash", color: "#ffb36b", desc: "Dash with fiery trail damage.", defaultUnlocked: false },
-  { id: "thornburst", label: "Thorn Burst", rune: "thornburst", color: "#9cd48c", desc: "Radial thorns that bleed enemies.", defaultUnlocked: false },
-  { id: "chronolock", label: "Chrono Lock", rune: "chronolock", color: "#e6d2ff", desc: "Freeze a cluster of foes briefly.", defaultUnlocked: false },
-  { id: "soulflare", label: "Soul Flare", rune: "soulflare", color: "#ff99d6", desc: "High-damage flare, self-hurts a bit.", defaultUnlocked: false },
-  { id: "wardbubble", label: "Ward Bubble", rune: "wardbubble", color: "#b8f3ff", desc: "Bubble reduces ranged damage briefly.", defaultUnlocked: false },
-  { id: "echoorb", label: "Echo Orb", rune: "echoorb", color: "#9fd4ff", desc: "Orb that bounces between enemies.", defaultUnlocked: false },
+  { id: "blast", label: "Arc Blast", rune: "blast", color: "#f9d64c", desc: "Radial burst at ~2× staff range dealing ~1.75× damage to every target (620 ms flare). Great opener after roots/slows.", defaultUnlocked: true },
+  { id: "heal", label: "Sanctify", rune: "heal", color: "#8ef9ff", desc: "Instant full heal plus 0.8 s radiant pulse; best between waves or after risky dashes.", defaultUnlocked: true },
+  { id: "haste", label: "Swiftstep", rune: "haste", color: "#b0ff6a", desc: "15 s, 1.45× move speed steroid. Pair with melee auras/dots to kite packs.", defaultUnlocked: true },
+  { id: "terrashield", label: "Terrashield", rune: "terrashield", color: "#8cff8a", desc: "Root for 1.8 s to charge, then 2.3× burst in 140 px ring and 3.2 s of 45% damage reduction. Huge if cast before engages.", defaultUnlocked: true },
+  { id: "flameorb", label: "Flame Orb", rune: "flameorb", color: "#ffb347", desc: "1.6 s homing orb for ~2.2× hit; explodes small on contact for ~2×. Loves Time Warp/roots.", defaultUnlocked: false },
+  { id: "frostnova", label: "Frost Nova", rune: "frostnova", color: "#9edbff", desc: "2.4-cell freeze (0.9 s) + 2.2 s 65% slow; ~0.6× hit plus 0.4× shards to up to 3 foes. Sets up blasts/beams.", defaultUnlocked: false },
+  { id: "timewarp", label: "Time Warp", rune: "timewarp", color: "#e2c6ff", desc: "Global 5 s slow (enemies to 35% speed) while you stay fast. Great with DoTs and homing orbs.", defaultUnlocked: false },
+  { id: "chainlightning", label: "Unlimeted Power", rune: "chainlightning", color: "#d0f7ff", desc: "2 s slow-mo cone that zaps up to 7 targets in sight for ~1.4× each; fires bolts even with no targets.", defaultUnlocked: false },
+  { id: "emberstorm", label: "Emberstorm", rune: "emberstorm", color: "#ff8a5c", desc: "360° embers out to ~3.8 cells; upfront ~0.4× plus 4 s burn at 0.35× DPS (fire, ignites). Works best after slows.", defaultUnlocked: false },
+  { id: "meteordrop", label: "Meteor Drop", rune: "meteordrop", color: "#ff6b6b", desc: "Six meteors land in 0.5–0.8 s, 1.1–2.4 cells away; each blasts 0.9-cell radius for ~1.6× fire damage.", defaultUnlocked: false },
+  { id: "venomtide", label: "Venom Tide", rune: "venomtide", color: "#7cf2a3", desc: "3.2-cell poison wave: upfront ~0.25×, then 5.2 s poison at 0.32× DPS plus light slow. Melts clustered foes.", defaultUnlocked: false },
+  { id: "shadowstep", label: "Shadow Step", rune: "shadowstep", color: "#bca9ff", desc: "Blink up to 1.8 cells to open ground with 0.75 s invuln and afterimages. Best for re-angles or dodging elites.", defaultUnlocked: false },
+  { id: "stonewall", label: "Stonewall", rune: "stonewall", color: "#c8b48a", desc: "Raise 6 stones in a 1.2-cell ring for 6.5 s (22 px radius each). Blocks dashes/LOS; combo with roots/beams.", defaultUnlocked: false },
+  { id: "galeslice", label: "Gale Slice", rune: "galeslice", color: "#b6f0ff", desc: "3 wind blades home toward nearest targets; reach ~5 cells, ~1.1× damage, and 0.32 s 20% slow. Great follow-up to pulls.", defaultUnlocked: true },
+  { id: "radiantaegis", label: "Radiant Aegis", rune: "radiantaegis", color: "#ffe79f", desc: "5.2 s absorb shield for 140 and an instant +45 heal. Layer before melee brawls; pairs with Time Warp for face-tanking.", defaultUnlocked: true },
+  { id: "wardingroots", label: "Warding Roots", rune: "wardingroots", color: "#9bd48a", desc: "3.6 s snare in 2.6-cell radius dealing 0.45× DPS and 70% slow; leaves vine zone that persists briefly. Prime setup for AoE.", defaultUnlocked: true },
+  { id: "aurastride", label: "Aura Stride", rune: "aurastride", color: "#9ff2ff", desc: "5.2 s aura (2.4-cell): +90 move speed to you/allies, pulses ~0.32× DPS to foes. Keep it up with kiting builds.", defaultUnlocked: true },
+  { id: "starlance", label: "Star Lance", rune: "starlance", color: "#ffe4ff", desc: "Auto-aims nearest threat, fires 7.5-cell piercing beam (24 px thick) for ~2.2× damage per foe hit. Excels vs lines.", defaultUnlocked: true },
+  { id: "voidpulse", label: "Void Pulse", rune: "voidpulse", color: "#c28cff", desc: "1.2 s void field (3.2-cell radius) that drags foes inward, then detonates for ~1.6× blast. Pair with Emberstorm/Meteor.", defaultUnlocked: false },
+  { id: "mirrorveil", label: "Mirror Veil", rune: "mirrorveil", color: "#d6f0ff", desc: "Concept: short veil that reflects part of incoming damage; ideal before ranged volleys. (Not active yet.)", defaultUnlocked: false },
+  { id: "glacialspear", label: "Glacial Spear", rune: "glacialspear", color: "#b5e5ff", desc: "Concept: long piercing spear with heavy slow at the tip; perfect with roots/pulls. (Not active yet.)", defaultUnlocked: false },
+  { id: "stormbarrier", label: "Storm Barrier", rune: "stormbarrier", color: "#9dc7ff", desc: "Concept: orbiting bolts that block projectiles and zap nearby foes; sustains while moving. (Not active yet.)", defaultUnlocked: false },
+  { id: "lifesurge", label: "Life Surge", rune: "lifesurge", color: "#9cffc7", desc: "Concept: regen surge plus brief cleanse, rewarding aggressive play. (Not active yet.)", defaultUnlocked: false },
+  { id: "arcburst", label: "Arc Burst", rune: "arcburst", color: "#ffd58f", desc: "Concept: close-range arc shotgun with stagger; shreds pulled mobs. (Not active yet.)", defaultUnlocked: false },
+  { id: "mistveil", label: "Mist Veil", rune: "mistveil", color: "#c7e8ff", desc: "Concept: brief translucence that negates the next hit while letting you slip past foes. (Not active yet.)", defaultUnlocked: false },
+  { id: "gravitywell", label: "Gravity Well", rune: "gravitywell", color: "#9ab0ff", desc: "Concept: slowing well that drags enemies inward over time; stack with beams/meteors. (Not active yet.)", defaultUnlocked: false },
+  { id: "emberdash", label: "Ember Dash", rune: "emberdash", color: "#ffb36b", desc: "Concept: quick dash that leaves a burning trail; great for hit-and-run. (Not active yet.)", defaultUnlocked: false },
+  { id: "thornburst", label: "Thorn Burst", rune: "thornburst", color: "#9cd48c", desc: "Concept: radial thorns that pierce/bleed; scales with roots/pulls. (Not active yet.)", defaultUnlocked: false },
+  { id: "chronolock", label: "Chrono Lock", rune: "chronolock", color: "#e6d2ff", desc: "Concept: freezes a cluster for a beat, giving free headshots/meteors. (Not active yet.)", defaultUnlocked: false },
+  { id: "soulflare", label: "Soul Flare", rune: "soulflare", color: "#ff99d6", desc: "Concept: massive flare that hurts you slightly but devastates foes in a cone. (Not active yet.)", defaultUnlocked: false },
+  { id: "wardbubble", label: "Ward Bubble", rune: "wardbubble", color: "#b8f3ff", desc: "Concept: short bubble that trims ranged damage; pairs with standoffs. (Not active yet.)", defaultUnlocked: false },
+  { id: "echoorb", label: "Echo Orb", rune: "echoorb", color: "#9fd4ff", desc: "Concept: bouncing orb that gains power on each hit; best in corridors. (Not active yet.)", defaultUnlocked: false },
 ];
 nextSpellSpawnIndex = Math.floor(Math.random() * SPELL_TYPES.length);
 
@@ -887,6 +993,8 @@ const SPELL_SLOT_RUNES = {
     '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 16c0-3 3-6 6-6s6 3 6 6-3 6-6 6-6-3-6-6z" fill="none" stroke="currentColor" stroke-width="1.6" opacity=\"0.7\"/><path d="M12 16h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
   starlance:
     '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><path d="M8 16h12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M20 10l4 6-4 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="16" r="2.2" fill="currentColor" opacity=\"0.5\"/></svg>',
+  voidpulse:
+    '<svg viewBox="0 0 32 32" class="spell-slot__icon" aria-hidden="true"><circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 12c1.6-1.6 3.4-2.2 6-2.2s4.4 0.6 6 2.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M12 18c1 1 2.2 1.4 4 1.4s3-0.4 4-1.4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.8"/><circle cx="16" cy="16" r="2.2" fill="currentColor" opacity="0.35"/></svg>',
 };
 const SPELL_BLAST_RANGE_MULTIPLIER = 2;
 const SPELL_BLAST_DAMAGE_MULTIPLIER = 1.75;
@@ -917,6 +1025,7 @@ const SPELL_ELEMENTS = {
   wardingroots: "nature",
   aurastride: "aura",
   starlance: "arcane",
+  voidpulse: "void",
 };
 const LIFEBLOOM_HEAL_RANGE = CELL_SIZE * 1.1;
 const COMPANION_BOND_DISTANCE = CELL_SIZE * 1.2;
@@ -1004,6 +1113,10 @@ const AURA_STRIDE_DAMAGE = 0.32;
 const STAR_LANCE_RANGE = CELL_SIZE * 7.5;
 const STAR_LANCE_WIDTH = 24;
 const STAR_LANCE_DAMAGE = 2.2;
+const VOID_PULSE_RADIUS = CELL_SIZE * 3.2;
+const VOID_PULSE_PULL = 220;
+const VOID_PULSE_DURATION = 1200;
+const VOID_PULSE_BLAST = 1.6;
 const PREY_TYPES = [
   { id: "scamper", speed: 150, health: 45, color: "#7befa2", weight: 0.24, radius: 14, groupMin: 1, groupMax: 2 },
   { id: "glider", speed: 160, health: 40, color: "#5de0c2", weight: 0.20, radius: 14, groupMin: 1, groupMax: 2 },
@@ -1285,6 +1398,13 @@ function resetGame() {
   player.radiantShield = 0;
   player.radiantShieldTimer = 0;
   rebuildWorldState({ refillSpellSlots: true, keepCompanions: false, keepAggroFlags: false });
+  if (bossLevels(state.level)) {
+    spawnBossForLevel(state.level);
+    showAchievement(`Boss Level ${state.level}: defeat the boss to advance`);
+    showBossBanner(`Boss Level ${state.level}: defeat the boss to advance`);
+  } else {
+    activeBoss = null;
+  }
   state.running = true;
   state.over = false;
   state.startedAt = performance.now();
@@ -1328,6 +1448,7 @@ function hideStartOverlay() {
 function handleLevelProgress(delta) {
   if (state.over) return;
   if (levelTransition.active && levelTransition.phase === "out") return;
+  if (activeBoss && activeBoss.health > 0) return;
   state.levelTimer += delta;
   while (state.levelTimer >= LEVEL_DURATION_MS) {
     state.levelTimer -= LEVEL_DURATION_MS;
@@ -1381,6 +1502,17 @@ function applyLevelAdvance(level) {
   regenerateDungeonData();
   repositionPlayerAtSpawn();
   rebuildWorldState({ refillSpellSlots: false, keepCompanions: true, keepAggroFlags: true });
+  if (bossLevels(level)) {
+    showAchievement(`Boss Level ${level}: defeat the boss to advance`);
+    showBossBanner(`Boss Level ${level}: defeat the boss to advance`);
+    spawnBossForLevel(level);
+  } else {
+    activeBoss = null;
+    if (bossMusic) {
+      stopMusic();
+      startBackgroundMusic();
+    }
+  }
 }
 
 function createEnemy() {
@@ -1491,9 +1623,6 @@ function createEnemy() {
   if (enemy.behaviour === "sentry") {
     assignPatrolTarget(enemy);
   }
-  if (template.unlockMs === ELITE_ENEMY_UNLOCK_MS || ALWAYS_AGGRESSIVE_VARIANTS.has(template.id)) {
-    enemy.resistElement = lastSpellElement || null;
-  }
   enemies.push(enemy);
   spawnParticles(enemy.x, enemy.y, template.color, 140, 20);
 }
@@ -1567,10 +1696,492 @@ function createTitanEnemy() {
     slowTimer: 0,
     slowFactor: 1,
     freezeTimer: 0,
-    resistElement: null,
   };
   enemies.push(enemy);
   spawnParticles(enemy.x, enemy.y, template.color, 160, 26);
+}
+
+function pickBossForLevel(level) {
+  const index = Math.max(0, Math.floor(level / 3) - 1) % BOSS_TYPES.length;
+  return BOSS_TYPES[index];
+}
+
+function drawBossSprite(enemy, screenX, screenY) {
+  const scale = enemy.drawScale || 7;
+  const spawnProgress = enemy.spawnTimer ? enemy.spawnTimer / ENEMY_SPAWN_FLASH : 0;
+  const glowPulse = 0.35 + Math.sin(animationTime * 0.005 + (enemy.glowPhase || 0)) * 0.25;
+  const glowRadius = (enemy.radius || 24) * (0.55 + glowPulse * 0.25);
+  ctx.save();
+  ctx.translate(screenX, screenY);
+
+  // base glow
+  ctx.save();
+  ctx.globalAlpha = 0.32 + glowPulse * 0.24;
+  ctx.fillStyle = enemy.color || "#ff4d94";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, glowRadius, glowRadius, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const walkPhase = ((enemy.walkCycle || 0) / 240) * Math.PI * 2;
+  const bobAmount = Math.cos(walkPhase) * 0.26;
+  const stride = Math.sin(walkPhase) * 0.9;
+
+  ctx.scale(scale, scale);
+  ctx.translate(0, bobAmount * 0.6);
+
+  // shadow
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.beginPath();
+  ctx.ellipse(0, 2.6, (enemy.shadowWidth || 6), (enemy.shadowHeight || 2.4), 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (!enemy.animTimer) enemy.animTimer = 0;
+  enemy.animTimer = (enemy.animTimer + 1) % 240;
+
+  const breathing = Math.sin(enemy.animTimer / 18) * 0.5;
+  const spawnFade = spawnProgress > 0 ? 0.5 + (1 - spawnProgress) * 0.5 : 1;
+  const id = enemy.variant;
+  const moteSpin = animationTime * 0.002;
+  const drawOrbitingMotes = (color, count = 10, radius = 5.2, size = 0.22, alpha = 0.6) => {
+    ctx.fillStyle = color;
+    ctx.globalAlpha = alpha;
+    for (let i = 0; i < count; i++) {
+      const ang = (Math.PI * 2 * i) / count + moteSpin;
+      const r = radius + Math.sin(animationTime * 0.003 + i) * 0.3;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(ang) * r, Math.sin(ang) * r, size, size, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  };
+
+  const drawEmber = () => {
+    ctx.save();
+    ctx.globalAlpha = spawnFade;
+    ctx.fillStyle = "#2d0f0f";
+    ctx.fillRect(-4.2, -2.6, 8.4, 6.4 + breathing * 0.3);
+    ctx.fillStyle = enemy.color;
+    ctx.fillRect(-3.6, -3.4, 7.2, 5.6 + breathing * 0.4);
+    ctx.fillStyle = "#ffefc4";
+    ctx.fillRect(-2.0, -2.0, 1.6, 1.6);
+    ctx.fillRect(0.6, -2.0, 1.6, 1.6);
+    ctx.fillStyle = "#1a0a0a";
+    ctx.fillRect(-1.5, -1.6, 0.7, 0.7);
+    ctx.fillRect(1.1, -1.6, 0.7, 0.7);
+    ctx.fillStyle = "#ffb36b";
+    ctx.fillRect(-1.0, -0.6, 2.0, 1.3 + breathing * 0.4);
+    ctx.fillStyle = "#4a1b1b";
+    ctx.fillRect(-4.5 - stride * 0.4, -1.2, 1.6, 3.6 + breathing * 0.2);
+    ctx.fillRect(2.9 + stride * 0.4, -1.2, 1.6, 3.6 - breathing * 0.2);
+    ctx.fillStyle = "#3b0f0f";
+    ctx.fillRect(-3.8 - stride, 1.6 - breathing * 0.2, 2.2, 3.4 + breathing * 0.3);
+    ctx.fillRect(1.6 + stride, 1.6 + breathing * 0.2, 2.2, 3.4 - breathing * 0.3);
+    // ember crown
+    ctx.fillStyle = "rgba(255,140,90,0.55)";
+    ctx.beginPath();
+    ctx.moveTo(-3.4, -3.4);
+    ctx.lineTo(-2.4, -4.8);
+    ctx.lineTo(-1.4, -3.4);
+    ctx.lineTo(-0.4, -4.8);
+    ctx.lineTo(0.6, -3.4);
+    ctx.lineTo(1.6, -4.8);
+    ctx.lineTo(2.6, -3.4);
+    ctx.closePath();
+    ctx.fill();
+    // sparkles
+    ctx.fillStyle = "rgba(255,220,160,0.7)";
+    for (let i = 0; i < 8; i++) {
+      const ang = (Math.PI * 2 * i) / 8 + animationTime * 0.002;
+      const r = 4.5 + Math.sin(animationTime * 0.004 + i) * 0.6;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(ang) * r, Math.sin(ang) * r, 0.25, 0.25, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // ember shards
+    ctx.fillStyle = "rgba(255,120,70,0.8)";
+    for (let i = 0; i < 6; i++) {
+      const ang = (Math.PI * 2 * i) / 6 + moteSpin * 1.6;
+      const r = 3.4 + Math.sin(animationTime * 0.004 + i) * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(ang) * r, Math.sin(ang) * r);
+      ctx.lineTo(Math.cos(ang) * (r + 1.0), Math.sin(ang) * (r + 1.0));
+      ctx.lineTo(Math.cos(ang + 0.15) * r, Math.sin(ang + 0.15) * r);
+      ctx.closePath();
+      ctx.fill();
+    }
+    drawOrbitingMotes("rgba(255,200,140,0.65)", 12, 5.2, 0.18, 0.9);
+    ctx.restore();
+  };
+
+  const drawFrost = () => {
+    ctx.save();
+    ctx.globalAlpha = spawnFade;
+    ctx.fillStyle = "#113349";
+    ctx.fillRect(-4.2, -2.6, 8.4, 6.6 + breathing * 0.3);
+    ctx.fillStyle = "#9edbff";
+    ctx.fillRect(-3.6, -3.6, 7.2, 5.8 + breathing * 0.35);
+    ctx.fillStyle = "#e6f7ff";
+    ctx.fillRect(-2.0, -2.2, 1.6, 1.6);
+    ctx.fillRect(0.6, -2.2, 1.6, 1.6);
+    ctx.fillStyle = "#1b2a3c";
+    ctx.fillRect(-1.4, -1.8, 0.7, 0.7);
+    ctx.fillRect(1.2, -1.8, 0.7, 0.7);
+    ctx.fillStyle = "#bfe8ff";
+    ctx.fillRect(-1.0, -0.8, 2.0, 1.4 + breathing * 0.4);
+    // spikes
+    ctx.fillStyle = "#c8ecff";
+    ctx.beginPath();
+    ctx.moveTo(-4.0, -1.0);
+    ctx.lineTo(-5.0, -3.2);
+    ctx.lineTo(-3.5, -1.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(4.0, -1.0);
+    ctx.lineTo(5.0, -3.2);
+    ctx.lineTo(3.5, -1.2);
+    ctx.closePath();
+    ctx.fill();
+    // snow halo
+    ctx.strokeStyle = "rgba(200,240,255,0.4)";
+    ctx.lineWidth = 0.35;
+    ctx.beginPath();
+    ctx.arc(0, -0.2, 4.8, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.65)";
+    for (let i = 0; i < 10; i++) {
+      const ang = (Math.PI * 2 * i) / 10 - animationTime * 0.0025;
+      const r = 5 + Math.cos(animationTime * 0.003 + i) * 0.4;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(ang) * r, Math.sin(ang) * r, 0.22, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawOrbitingMotes("rgba(190,235,255,0.7)", 14, 5.6, 0.2, 0.8);
+    ctx.restore();
+  };
+
+  const drawVoid = () => {
+    ctx.save();
+    ctx.globalAlpha = spawnFade;
+    ctx.fillStyle = "#1a0f2b";
+    ctx.beginPath();
+    ctx.ellipse(0, 0.2, 4.4, 4.2 + breathing * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#c28cff";
+    ctx.lineWidth = 0.4;
+    ctx.beginPath();
+    ctx.arc(0, 0.2, 3.4 + breathing * 0.2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#e5d0ff";
+    ctx.beginPath();
+    ctx.ellipse(-1.4, -0.8, 0.9, 1.1, 0, 0, Math.PI * 2);
+    ctx.ellipse(1.4, -0.8, 0.9, 1.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#1c0a28";
+    ctx.beginPath();
+    ctx.ellipse(-1.4, -0.8, 0.4, 0.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(1.4, -0.8, 0.4, 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // tendrils
+    ctx.strokeStyle = "rgba(194,140,255,0.5)";
+    ctx.lineWidth = 0.25;
+    for (let i = 0; i < 6; i++) {
+      const ang = (Math.PI * 2 * i) / 6;
+      const len = 3 + Math.sin(animationTime * 0.003 + i) * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(ang) * 2.2, Math.sin(ang) * 2.2);
+      ctx.lineTo(Math.cos(ang) * (2.2 + len), Math.sin(ang) * (2.2 + len));
+      ctx.stroke();
+    }
+    // runic halo
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.strokeStyle = "rgba(160,120,255,0.45)";
+    ctx.lineWidth = 0.28;
+    ctx.beginPath();
+    ctx.arc(0, -0.4, 5.2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "rgba(255,200,255,0.5)";
+    for (let i = 0; i < 8; i++) {
+      const ang = (Math.PI * 2 * i) / 8 + animationTime * 0.002;
+      const r = 5.1;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(ang) * r, Math.sin(ang) * r, 0.2, 0.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawOrbitingMotes("rgba(194,140,255,0.8)", 12, 5.4, 0.22, 0.85);
+    ctx.restore();
+  };
+
+  const drawStone = () => {
+    ctx.save();
+    ctx.globalAlpha = spawnFade;
+    ctx.fillStyle = "#2a2418";
+    ctx.fillRect(-4.6, -2.4, 9.2, 6.8 + breathing * 0.2);
+    ctx.fillStyle = "#c8b48a";
+    ctx.fillRect(-4.0, -3.2, 8.0, 5.6 + breathing * 0.3);
+    ctx.fillStyle = "#ead9b3";
+    ctx.fillRect(-2.2, -2.0, 1.7, 1.6);
+    ctx.fillRect(0.5, -2.0, 1.7, 1.6);
+    ctx.fillStyle = "#3b301f";
+    ctx.fillRect(-1.6, -1.6, 0.7, 0.7);
+    ctx.fillRect(1.2, -1.6, 0.7, 0.7);
+    ctx.fillStyle = "#9c8664";
+    ctx.fillRect(-1.0, -0.6, 2.0, 1.4 + breathing * 0.3);
+    // plates
+    ctx.fillStyle = "#b59d78";
+    ctx.fillRect(-4.2 - stride * 0.3, 1.5 - breathing * 0.2, 2.2, 3.6 + breathing * 0.2);
+    ctx.fillRect(2.0 + stride * 0.3, 1.5 + breathing * 0.2, 2.2, 3.6 - breathing * 0.2);
+    // runes
+    ctx.strokeStyle = "rgba(255,240,210,0.45)";
+    ctx.lineWidth = 0.22;
+    ctx.beginPath();
+    ctx.moveTo(-2.6, -2.4);
+    ctx.lineTo(-1.2, -1.4);
+    ctx.lineTo(-2.0, -0.4);
+    ctx.moveTo(2.6, -2.4);
+    ctx.lineTo(1.2, -1.4);
+    ctx.lineTo(2.0, -0.4);
+    ctx.stroke();
+    // dust/sparks
+    ctx.fillStyle = "rgba(210,180,140,0.5)";
+    for (let i = 0; i < 8; i++) {
+      const ang = (Math.PI * 2 * i) / 8 - animationTime * 0.0018;
+      const r = 4.4 + Math.sin(animationTime * 0.003 + i) * 0.5;
+      ctx.beginPath();
+      ctx.ellipse(Math.cos(ang) * r, Math.sin(ang) * r, 0.22, 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    drawOrbitingMotes("rgba(200,180,140,0.7)", 10, 5.2, 0.18, 0.75);
+    ctx.restore();
+  };
+
+  if (id === "ember_colossus") drawEmber();
+  else if (id === "frost_warden") drawFrost();
+  else if (id === "void_marrow") drawVoid();
+  else drawStone();
+
+  // health bar
+  const ratio = Math.max(0, Math.min(1, enemy.health / enemy.maxHealth));
+  ctx.save();
+  ctx.translate(0, -6.6);
+  ctx.scale(1 / scale, 1 / scale);
+  const barWidth = 160;
+  const barHeight = 12;
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(-barWidth / 2, -barHeight - 6, barWidth, barHeight);
+  ctx.fillStyle = "#ff4d94";
+  ctx.fillRect(-barWidth / 2, -barHeight - 6, barWidth * ratio, barHeight);
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-barWidth / 2, -barHeight - 6, barWidth, barHeight);
+  ctx.restore();
+
+  ctx.restore();
+}
+function spawnBossForLevel(level) {
+  const def = pickBossForLevel(level);
+  if (!def) return null;
+  const template = def;
+  const playerTileX = Math.floor(player.x / CELL_SIZE);
+  const playerTileY = Math.floor(player.y / CELL_SIZE);
+  const sortedRooms = [...dungeonRooms].sort((a, b) => {
+    const aDx = a.centerX - playerTileX;
+    const aDy = a.centerY - playerTileY;
+    const bDx = b.centerX - playerTileX;
+    const bDy = b.centerY - playerTileY;
+    return Math.hypot(bDx, bDy) - Math.hypot(aDx, aDy);
+  });
+  const room = sortedRooms[0] || dungeonRooms[0];
+  const padding = 2;
+  const tileX = room.x + padding + Math.floor(Math.random() * Math.max(1, room.width - padding * 2));
+  const tileY = room.y + padding + Math.floor(Math.random() * Math.max(1, room.height - padding * 2));
+  const boss = {
+    x: tileX * CELL_SIZE + CELL_SIZE / 2,
+    y: tileY * CELL_SIZE + CELL_SIZE / 2,
+    radius: 44,
+    speed: template.speed,
+    health: template.health,
+    maxHealth: template.health,
+    damageCooldown: 0,
+    damage: template.damage,
+    variant: template.id,
+    behaviour: "titan",
+    state: "hunt",
+    homeRoom: getRoomAt(tileX, tileY),
+    stuckTimer: 0,
+    prevX: tileX * CELL_SIZE + CELL_SIZE / 2,
+    prevY: tileY * CELL_SIZE + CELL_SIZE / 2,
+    color: template.color,
+    drawScale: 7.0,
+    shadowWidth: 6.4,
+    shadowHeight: 2.5,
+    collisionShrink: 0.72,
+    glowPhase: Math.random() * Math.PI * 2,
+    walkCycle: 0,
+    animTimer: 0,
+    attackTimer: 0,
+    spawnTimer: ENEMY_SPAWN_FLASH,
+    isBoss: true,
+    bossName: template.name,
+    name: template.name,
+    attacks: template.attacks,
+    lungeRange: template.lungeRange,
+    lungeCooldownBase: template.lungeCooldown,
+    lungeCooldownTimer: template.lungeCooldown * 0.5,
+    lungeSpeedMultiplier: template.lungeSpeedMultiplier,
+    lungeDuration: template.lungeDuration,
+    lungeParticleColor: template.color,
+    hasteThreshold: 0.45,
+    hasteMultiplier: 1.1,
+    lungeTimer: 0,
+    isLunging: false,
+    lungeDirX: 0,
+    lungeDirY: 0,
+    hunger: 0,
+    preyTargetId: null,
+    preyRetargetTimer: 0,
+    path: null,
+    pathIndex: 0,
+    pathTargetCol: null,
+    pathTargetRow: null,
+    pathCooldown: 0,
+    slowTimer: 0,
+    slowFactor: 1,
+    freezeTimer: 0,
+    bossAbilityTimer: 0,
+    dashRange: CELL_SIZE * 2.2,
+    dashCooldownBase: 1500,
+    dashCooldownTimer: 800,
+    dashDuration: 260,
+  };
+  enemies.push(boss);
+  activeBoss = boss;
+  showAchievement(`Boss: ${template.name} — kill to finish level`);
+  startBossMusic();
+  return boss;
+}
+
+function handleBossDefeated(enemy) {
+  activeBoss = null;
+  showAchievement(`${enemy.bossName || "Boss"} defeated!`);
+  boostGunLevels(3);
+  player.health = player.maxHealth;
+  player.mana = player.maxMana;
+  if (bossMusic) {
+    stopMusic();
+    startBackgroundMusic();
+  }
+  state.levelTimer = LEVEL_DURATION_MS;
+  beginLevelAdvance();
+}
+
+function bossAbilityTick(enemy, deltaSeconds) {
+  if (!enemy.isBoss) return;
+  enemy.bossAbilityTimer = (enemy.bossAbilityTimer || 0) - deltaSeconds;
+  if (enemy.bossAbilityTimer > 0) return;
+  const attacks = enemy.attacks || {};
+  const resetTimer = () => {
+    enemy.bossAbilityTimer = 1.6 + Math.random() * 1.6;
+  };
+  const distToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y) || 1;
+
+  if (enemy.variant === "ember_colossus") {
+    // Flame wake dash + slam
+    resetTimer();
+    enemy.isLunging = true;
+    enemy.lungeTimer = 320;
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const len = Math.hypot(dx, dy) || 1;
+    enemy.lungeDirX = dx / len;
+    enemy.lungeDirY = dy / len;
+    enemy.attackTimer = Math.max(enemy.attackTimer || 0, 400);
+    spellEffects.push({ type: "boss-flamewake", x: enemy.x, y: enemy.y, duration: 520, elapsed: 0, radius: CELL_SIZE * 1.1 });
+    if (distToPlayer < CELL_SIZE * 1.1) {
+      player.health = Math.max(0, player.health - 24);
+      if (player.health <= 0) gameOver();
+    }
+    spawnParticles(enemy.x, enemy.y, enemy.color || "#ff7b3d", 220, 18);
+    return;
+  }
+
+  if (enemy.variant === "frost_warden") {
+    resetTimer();
+    // Ice nova slow and shard fan
+    const radius = CELL_SIZE * 1.25;
+    if (distToPlayer < radius + player.radius) {
+      player.slowFactor = Math.min(player.slowFactor || 1, 0.5);
+      player.slowTimer = Math.max(player.slowTimer || 0, 1600);
+      player.health = Math.max(0, player.health - 16);
+      if (player.health <= 0) gameOver();
+    }
+    for (let i = -2; i <= 2; i += 1) {
+      const base = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      const ang = base + i * 0.18;
+      const sx = enemy.x + Math.cos(ang) * CELL_SIZE * 0.8;
+      const sy = enemy.y + Math.sin(ang) * CELL_SIZE * 0.8;
+      spellEffects.push({ type: "boss-ice-shard", x: sx, y: sy, duration: 420, elapsed: 0, radius: 14 });
+      if (Math.hypot(player.x - sx, player.y - sy) < 26) {
+        player.health = Math.max(0, player.health - 10);
+        if (player.health <= 0) gameOver();
+      }
+    }
+    spawnParticles(enemy.x, enemy.y, "#9edbff", 240, 24);
+    return;
+  }
+
+  if (enemy.variant === "void_marrow") {
+    resetTimer();
+    // Pull + beam
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const strength = 620 * deltaSeconds;
+    player.x -= (dx / dist) * strength;
+    player.y -= (dy / dist) * strength;
+    const beamAngle = Math.atan2(dy, dx);
+    const beamRange = CELL_SIZE * 2.2;
+    const px = enemy.x + Math.cos(beamAngle) * beamRange;
+    const py = enemy.y + Math.sin(beamAngle) * beamRange;
+    spellEffects.push({ type: "boss-void-beam", x: px, y: py, duration: 320, elapsed: 0, radius: 18 });
+    if (dist < beamRange && Math.abs(Math.atan2(dy, dx) - beamAngle) < 0.3) {
+      player.health = Math.max(0, player.health - 20);
+      if (player.health <= 0) gameOver();
+    }
+    spawnParticles(enemy.x, enemy.y, enemy.color || "#c28cff", 200, 18);
+    return;
+  }
+
+  if (enemy.variant === "stone_tyrant") {
+    resetTimer();
+    // Spike ring + charge
+    for (let i = 0; i < 7; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = CELL_SIZE * (1.1 + Math.random() * 0.9);
+      const sx = enemy.x + Math.cos(angle) * dist;
+      const sy = enemy.y + Math.sin(angle) * dist;
+      spellEffects.push({ type: "stone-spike", x: sx, y: sy, duration: 520, elapsed: 0, radius: 18 });
+      if (Math.hypot(player.x - sx, player.y - sy) < 34) {
+        player.health = Math.max(0, player.health - 18);
+        if (player.health <= 0) gameOver();
+      }
+    }
+    enemy.isLunging = true;
+    enemy.lungeTimer = 320;
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const len = Math.hypot(dx, dy) || 1;
+    enemy.lungeDirX = dx / len;
+    enemy.lungeDirY = dy / len;
+    enemy.attackTimer = Math.max(enemy.attackTimer || 0, 420);
+    spawnParticles(enemy.x, enemy.y, "#c8b48a", 120, 12);
+    return;
+  }
+
+  resetTimer();
 }
 
 function pickEnemyType() {
@@ -2067,6 +2678,7 @@ function updateHUD() {
   updateSpellSlotsUI();
 }
 
+
 function renderSpellbook() {
   if (!spellbookListEl) return;
   spellbookListEl.innerHTML = "";
@@ -2159,6 +2771,17 @@ function showAchievement(text) {
   achievementBanner.textContent = text;
   achievementBanner.classList.add("achievement-banner--visible");
   achievementTimer = 10000;
+}
+
+function showBossBanner(text, duration = 3500) {
+  if (!bossBanner) return;
+  bossBanner.textContent = text;
+  bossBanner.style.display = "block";
+  bossBanner.setAttribute("aria-hidden", "false");
+  setTimeout(() => {
+    bossBanner.style.display = "none";
+    bossBanner.setAttribute("aria-hidden", "true");
+  }, duration);
 }
 
 function eatMeat(amount = MEAT_HUNGER_RESTORE, mutates = true) {
@@ -2255,6 +2878,17 @@ function handleGunUpgrade() {
     );
     updateHUD();
   }
+}
+
+function boostGunLevels(levels) {
+  player.gunLevel += levels;
+  player.nextGunUpgrade += GUN_UPGRADE_INTERVAL * levels;
+  player.damage = BASE_GUN_DAMAGE + player.gunLevel * GUN_DAMAGE_STEP;
+  player.attackCooldown = Math.max(
+    BASE_GUN_COOLDOWN - player.gunLevel * GUN_COOLDOWN_STEP,
+    GUN_COOLDOWN_MIN,
+  );
+  player.attackRange = BASE_GUN_RANGE + player.gunLevel * GUN_RANGE_STEP;
 }
 
 function update(delta) {
@@ -2540,6 +3174,22 @@ function update(delta) {
     });
   }
 
+  // Void Pulse pull
+  spellEffects.forEach((effect) => {
+    if (effect.type !== "voidpulse") return;
+    const cx = effect.followPlayer ? player.x : effect.x;
+    const cy = effect.followPlayer ? player.y : effect.y;
+    enemies.forEach((enemy) => {
+      const dx = cx - enemy.x;
+      const dy = cy - enemy.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (dist > effect.radius) return;
+      const strength = (effect.pull || VOID_PULSE_PULL) * deltaSeconds * (1 - dist / effect.radius);
+      enemy.x += (dx / dist) * strength;
+      enemy.y += (dy / dist) * strength;
+    });
+  });
+
   fogTimer += delta;
   if (fogActive && fogTimer >= FOG_START_TIME) {
     const fogDelta = delta / 1000;
@@ -2577,6 +3227,7 @@ function update(delta) {
     const provoked = enemy.health < enemy.maxHealth;
     const shouldAggroPlayer = variantAggro || provoked;
     applyStatusDamage(enemy, deltaSeconds);
+    bossAbilityTick(enemy, deltaSeconds);
     const canConsiderPrey =
       hungerLevel >= ENEMY_HUNGER_HUNT_THRESHOLD || healthRatio <= ENEMY_PREY_HEALTH_THRESHOLD;
     const senseRange = isTitan ? ENEMY_PREY_SENSE_RANGE * 1.2 : ENEMY_PREY_SENSE_RANGE;
@@ -2953,6 +3604,9 @@ function update(delta) {
       enemies.splice(i, 1);
       state.kills += 1;
       handleGunUpgrade();
+      if (enemy.isBoss) {
+        handleBossDefeated(enemy);
+      }
     }
   }
 
@@ -3068,6 +3722,10 @@ function update(delta) {
 
   for (let i = spellEffects.length - 1; i >= 0; i -= 1) {
     const effect = spellEffects[i];
+    if (effect.followPlayer) {
+      effect.x = player.x;
+      effect.y = player.y;
+    }
     effect.elapsed = (effect.elapsed || 0) + delta;
     if (effect.type === "flameorb") {
       const dt = delta / 1000;
@@ -3110,6 +3768,9 @@ function update(delta) {
       if (effect.elapsed >= effect.duration) {
         if (effect.type === "meteorfall") {
           triggerMeteorImpact(effect);
+        }
+        if (effect.type === "voidpulse") {
+          triggerVoidPulseBlast(effect);
         }
         spellEffects.splice(i, 1);
       }
@@ -3652,6 +4313,10 @@ function useSpell(slotIndex) {
     playSfx("spell");
     castStarLanceSpell();
     break;
+  case "voidpulse":
+    playSfx("spell");
+    castVoidPulseSpell();
+    break;
     default:
       break;
   }
@@ -3843,12 +4508,6 @@ function castChainLightningSpell() {
 }
 
 function castEmberstormSpell() {
-  const facingX = player.facingX || player.lastFacingX || 0;
-  const facingY = player.facingY || player.lastFacingY || 1;
-  const len = Math.hypot(facingX, facingY) || 1;
-  const dirX = facingX / len;
-  const dirY = facingY / len;
-  const coneCos = Math.cos(EMBER_CONE_ANGLE);
   const maxRange = EMBER_CONE_RANGE;
   let hits = 0;
   enemies.forEach((enemy) => {
@@ -3856,10 +4515,7 @@ function castEmberstormSpell() {
     const dy = enemy.y - player.y;
     const dist = Math.hypot(dx, dy);
     if (dist > maxRange) return;
-    const dot = dist > 0 ? (dx * dirX + dy * dirY) / dist : -1;
-    if (dot < coneCos) return;
-    const los = hasLineOfSight(player.x, player.y, enemy.x, enemy.y);
-    if (!los) return;
+    if (!hasLineOfSight(player.x, player.y, enemy.x, enemy.y)) return;
     const burnDps = player.damage * EMBER_BURN_DPS;
     enemy.burnTimer = EMBER_BURN_DURATION;
     enemy.burnDps = burnDps;
@@ -3954,14 +4610,14 @@ function castMeteorDropSpell() {
 }
 
 function triggerMeteorImpact(effect) {
-    enemies.forEach((enemy) => {
-      const dist = Math.hypot(enemy.x - effect.x, enemy.y - effect.y);
-      if (dist <= effect.radius) {
-        const dmg = player.damage * 1.6;
-        const dealt = dealDamage(enemy, dmg, "fire");
-        spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
-      }
-    });
+  enemies.forEach((enemy) => {
+    const dist = Math.hypot(enemy.x - effect.x, enemy.y - effect.y);
+    if (dist <= effect.radius) {
+      const dmg = player.damage * 1.6;
+      const dealt = dealDamage(enemy, dmg, "fire");
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
+    }
+  });
   spellEffects.push({
     type: "meteor-explosion",
     x: effect.x,
@@ -3969,6 +4625,19 @@ function triggerMeteorImpact(effect) {
     duration: 520,
     elapsed: 0,
     radius: effect.radius,
+  });
+}
+
+function triggerVoidPulseBlast(effect) {
+  const cx = effect.followPlayer ? player.x : effect.x;
+  const cy = effect.followPlayer ? player.y : effect.y;
+  enemies.forEach((enemy) => {
+    const dist = Math.hypot(enemy.x - cx, enemy.y - cy);
+    if (dist <= (effect.radius || VOID_PULSE_RADIUS)) {
+      const dmg = player.damage * VOID_PULSE_BLAST;
+      const dealt = dealDamage(enemy, dmg, "void");
+      spawnDamageNumber(enemy.x, enemy.y - enemy.radius * 1.1, Math.round(dealt), "enemy");
+    }
   });
 }
 
@@ -4186,6 +4855,20 @@ function castStarLanceSpell() {
   });
   spawnParticles(player.x, player.y, "#ffe4ff", 90, 12);
   if (hits > 0) showAchievement(`Star Lance pierced ${hits} foe${hits === 1 ? "" : "s"}!`);
+}
+
+function castVoidPulseSpell() {
+  const effect = {
+    type: "voidpulse",
+    followPlayer: true,
+    duration: VOID_PULSE_DURATION,
+    elapsed: 0,
+    radius: VOID_PULSE_RADIUS,
+    pull: VOID_PULSE_PULL,
+  };
+  spellEffects.push(effect);
+  spawnParticles(player.x, player.y, "#c28cff", 140, 18);
+  showAchievement("Void Pulse unleashed!");
 }
 
 function triggerFlameOrbExplosion(x, y, dmg = player.damage * 2) {
@@ -4968,8 +5651,8 @@ function spawnHealNumber(x, y, amount = 1) {
 }
 
 function getResistMultiplier(enemy, element) {
-  if (!element || !enemy.resistElement) return 1;
-  return enemy.resistElement === element ? 0.6 : 1;
+  // resistance removed for now
+  return 1;
 }
 
 function dealDamage(enemy, amount, element) {
@@ -6002,17 +6685,17 @@ function drawFloor(offsetX, offsetY) {
       const y = row * CELL_SIZE - offsetY;
       if (tile === 1) {
         const noise = Math.abs(Math.sin(col * 12.94 + row * 7.12));
-        const shade = Math.floor(24 + noise * 20);
-        ctx.fillStyle = `rgb(${shade}, ${shade - 3}, ${shade - 6})`;
+        const shade = Math.floor(46 + noise * 28);
+        ctx.fillStyle = `rgb(${shade}, ${shade - 6}, ${shade - 10})`;
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
-        ctx.fillStyle = `rgba(${shade + 14}, ${shade + 6}, ${shade}, 0.12)`;
+        ctx.fillStyle = `rgba(${shade + 24}, ${shade + 12}, ${shade + 8}, 0.16)`;
         ctx.beginPath();
         ctx.ellipse(x + CELL_SIZE / 2, y + CELL_SIZE / 2, CELL_SIZE / 2.6, CELL_SIZE / 3.2, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.02)";
+        ctx.strokeStyle = "rgba(255,255,255,0.06)";
         ctx.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
         if (noise > 0.68) {
-          ctx.fillStyle = "rgba(255,255,255,0.06)";
+          ctx.fillStyle = "rgba(255,255,255,0.12)";
           ctx.beginPath();
           ctx.moveTo(x + 6, y + 6);
           ctx.lineTo(x + 10, y + 14);
@@ -6031,18 +6714,17 @@ function drawFloor(offsetX, offsetY) {
         ctx.fillRect(x + CELL_SIZE / 2 - 6, y + CELL_SIZE / 2 - 6, 12, 12);
       } else {
         const noise = Math.abs(Math.sin(col * 5.73 + row * 4.21));
-        const base = Math.floor(4 + noise * 6);
-        const topColor = `rgb(${Math.min(base + 12, 38)}, ${Math.min(base + 8, 34)}, ${Math.min(base + 16, 48)})`;
-        const bottomColor = `rgb(${Math.max(base - 1, 0)}, ${Math.max(base - 2, 0)}, ${Math.max(base + 2, 4)})`;
+        const base = Math.floor(18 + noise * 10);
+        const topColor = `rgb(${Math.min(base + 24, 68)}, ${Math.min(base + 18, 62)}, ${Math.min(base + 32, 80)})`;
+        const midColor = `rgb(${Math.max(base + 14, 24)}, ${Math.max(base + 10, 20)}, ${Math.max(base + 18, 28)})`;
+        const bottomColor = `rgb(${Math.max(base + 6, 12)}, ${Math.max(base + 4, 10)}, ${Math.max(base + 10, 16)})`;
         const gradient = ctx.createLinearGradient(x, y, x, y + CELL_SIZE);
         gradient.addColorStop(0, topColor);
-        gradient.addColorStop(0.45, `rgb(${Math.max(base + 4, 6)}, ${Math.max(base + 2, 4)}, ${Math.max(base + 6, 8)})`);
+        gradient.addColorStop(0.5, midColor);
         gradient.addColorStop(1, bottomColor);
         ctx.fillStyle = gradient;
         ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
-        ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
-        ctx.fillStyle = `rgba(96, 74, 56, ${0.06 + noise * 0.05})`;
+        ctx.fillStyle = `rgba(150, 120, 90, ${0.08 + noise * 0.06})`;
         ctx.beginPath();
         ctx.moveTo(x + 12, y + 10);
         ctx.lineTo(x + CELL_SIZE - 14, y + 16);
@@ -6051,7 +6733,7 @@ function drawFloor(offsetX, offsetY) {
         ctx.closePath();
         ctx.fill();
         if (noise > 0.72) {
-          ctx.strokeStyle = "rgba(180, 140, 90, 0.08)";
+          ctx.strokeStyle = "rgba(210, 180, 120, 0.14)";
           ctx.beginPath();
           ctx.moveTo(x + 18, y + 12);
           ctx.lineTo(x + CELL_SIZE - 18, y + CELL_SIZE - 14);
@@ -6059,7 +6741,7 @@ function drawFloor(offsetX, offsetY) {
           ctx.lineTo(x + CELL_SIZE - 12, y + 8);
           ctx.stroke();
         }
-        ctx.strokeStyle = "rgba(0,0,0,0.85)";
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
         ctx.lineWidth = 1.6;
         ctx.strokeRect(x + 1, y + 1, CELL_SIZE - 2, CELL_SIZE - 2);
       }
@@ -6165,18 +6847,18 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
   switch (mutationPhase) {
     case 0:
-      robeColor = "#765438";
-      robeHighlight = "#8f6d49";
-      trimColor = "#cfb582";
-      sashColor = "#ba8141";
-      gloveColor = "#8b6b45";
-      hatBase = "#c59b4e";
-      hatShadow = "#8f6e36";
-      hatHighlight = "#e3c27a";
+      robeColor = "#6f4a34";
+      robeHighlight = "#8c6646";
+      trimColor = "#e5cf9d";
+      sashColor = "#6b4026";
+      gloveColor = "#8b6441";
+      hatBase = "#cfa45a";
+      hatShadow = "#9d7541";
+      hatHighlight = "#f4d08c";
       headColor = "#06050c";
-      faceGlowColor = "190, 210, 255";
-      faceGlowAlphaBase = 0.18;
-      faceGlowAlphaBonus = 0.12;
+      faceGlowColor = "205, 230, 255";
+      faceGlowAlphaBase = 0.26;
+      faceGlowAlphaBonus = 0.16;
       eyeColor = "#ffffff";
       eyeGlowColor = "255, 255, 255";
       hornColor = "#d8c372";
@@ -6279,8 +6961,9 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
   const isAdjustingHat = idleState === "adjust_hat";
   const isStaffSpin = idleState === "staff_spin";
   const isStretching = idleState === "stretch";
-  const satchelSwing = player.satchelSwing || 0;
-  const satchelPhase = player.satchelPhase || 0;
+  const showSatchel = false;
+  const satchelSwing = showSatchel ? player.satchelSwing || 0 : 0;
+  const satchelPhase = showSatchel ? player.satchelPhase || 0 : 0;
   const motionIntensity = player.isMoving ? 1 : 0;
 
   const faceGlowAlpha = (faceGlowAlphaBase + stageRatio * faceGlowAlphaBonus) * (0.82 + blinkEase * 0.4);
@@ -6350,6 +7033,16 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.quadraticCurveTo(0.75, 0.6, 0.35, -0.4);
     ctx.closePath();
     ctx.fill();
+
+    ctx.strokeStyle = `rgba(255,235,210,${0.4 + staffGlow * 0.25})`;
+    ctx.lineWidth = 0.16;
+    ctx.lineCap = "round";
+    [0.6, 2.0, 3.6, 5.0].forEach((yPos, i) => {
+      ctx.beginPath();
+      ctx.moveTo(-0.4 + (i % 2 === 0 ? 0 : 0.15), yPos);
+      ctx.lineTo(0.4 + (i % 2 === 0 ? 0 : -0.15), yPos - 0.05);
+      ctx.stroke();
+    });
 
     if (mutationPhase >= 2) {
       ctx.fillStyle = clawColor;
@@ -6633,7 +7326,38 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     traceRobeShape();
     ctx.stroke();
 
-    drawSatchelFront();
+    const beltWidth = robeWidth * 0.95;
+    const beltHeight = 0.45;
+    const beltY = 0.95 + sashLift;
+    const beltGradient = ctx.createLinearGradient(-beltWidth, beltY - beltHeight, beltWidth, beltY + beltHeight);
+    beltGradient.addColorStop(0, mixHexColors(sashColor, "#100806", 0.35));
+    beltGradient.addColorStop(0.5, sashColor);
+    beltGradient.addColorStop(1, mixHexColors(sashColor, "#f2d3a2", 0.2));
+    ctx.fillStyle = beltGradient;
+    const beltRadius = 0.18;
+    ctx.beginPath();
+    ctx.moveTo(-beltWidth + beltRadius, beltY - beltHeight / 2);
+    ctx.lineTo(beltWidth - beltRadius, beltY - beltHeight / 2);
+    ctx.quadraticCurveTo(beltWidth, beltY - beltHeight / 2, beltWidth, beltY - beltHeight / 2 + beltRadius);
+    ctx.lineTo(beltWidth, beltY + beltHeight / 2 - beltRadius);
+    ctx.quadraticCurveTo(beltWidth, beltY + beltHeight / 2, beltWidth - beltRadius, beltY + beltHeight / 2);
+    ctx.lineTo(-beltWidth + beltRadius, beltY + beltHeight / 2);
+    ctx.quadraticCurveTo(-beltWidth, beltY + beltHeight / 2, -beltWidth, beltY + beltHeight / 2 - beltRadius);
+    ctx.lineTo(-beltWidth, beltY - beltHeight / 2 + beltRadius);
+    ctx.quadraticCurveTo(-beltWidth, beltY - beltHeight / 2, -beltWidth + beltRadius, beltY - beltHeight / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${0.12 + stageRatio * 0.05})`;
+    ctx.lineWidth = 0.12;
+    ctx.stroke();
+    ctx.fillStyle = mixHexColors(sashColor, "#e8c07a", 0.25);
+    ctx.beginPath();
+    ctx.ellipse(beltWidth * 0.78, beltY + 0.05, 0.22, 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (showSatchel) {
+      drawSatchelFront();
+    }
 
     ctx.fillStyle = gloveColor;
     ctx.beginPath();
@@ -6731,7 +7455,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.save();
       ctx.translate(0, -0.85);
       ctx.rotate(hatTilt);
-      const brimWidth = robeWidth + 1.18 + stageRatio * 0.16;
+      const brimWidth = robeWidth + 0.92 + stageRatio * 0.12;
       ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.beginPath();
       ctx.ellipse(0, -1.65, brimWidth, 0.54, 0, 0, Math.PI * 2);
@@ -6812,21 +7536,38 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.fillStyle = sideGradient;
     ctx.fill();
 
-    const strapGradient = ctx.createLinearGradient(-0.9, -1.4, 1.3, robeBaseY + 0.6);
-    strapGradient.addColorStop(0, mixHexColors(strapColor, "#160a05", 0.55));
-    strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.45));
-    ctx.fillStyle = strapGradient;
+    const beltHeightSide = 0.42;
+    const beltYSide = 0.95 + sashLift * 0.8;
+    ctx.fillStyle = mixHexColors(sashColor, "#100806", 0.25);
     ctx.beginPath();
-    ctx.moveTo(-0.95, -1.18 - sway * 0.3);
-    ctx.lineTo(-0.4, -1.18 - sway * 0.3);
-    ctx.lineTo(0.82, robeBaseY - 0.12 + satchelSwing * 0.4);
-    ctx.lineTo(0.3, robeBaseY - 0.12 + satchelSwing * 0.4);
+    ctx.moveTo(-robeWidth + 0.55, beltYSide - beltHeightSide / 2);
+    ctx.lineTo(robeWidth - 0.2, beltYSide - beltHeightSide / 2);
+    ctx.quadraticCurveTo(robeWidth + 0.05, beltYSide, robeWidth - 0.2, beltYSide + beltHeightSide / 2);
+    ctx.lineTo(-robeWidth + 0.55, beltYSide + beltHeightSide / 2);
+    ctx.quadraticCurveTo(-robeWidth + 0.8, beltYSide, -robeWidth + 0.55, beltYSide - beltHeightSide / 2);
     ctx.closePath();
     ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${0.1 + stageRatio * 0.05})`;
+    ctx.lineWidth = 0.12;
+    ctx.stroke();
 
-    ctx.save();
-    ctx.translate(0.55, robeBaseY - 0.05 + satchelSwing * 0.45);
-    ctx.restore();
+    if (showSatchel) {
+      const strapGradient = ctx.createLinearGradient(-0.9, -1.4, 1.3, robeBaseY + 0.6);
+      strapGradient.addColorStop(0, mixHexColors(strapColor, "#160a05", 0.55));
+      strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.45));
+      ctx.fillStyle = strapGradient;
+      ctx.beginPath();
+      ctx.moveTo(-0.95, -1.18 - sway * 0.3);
+      ctx.lineTo(-0.4, -1.18 - sway * 0.3);
+      ctx.lineTo(0.82, robeBaseY - 0.12 + satchelSwing * 0.4);
+      ctx.lineTo(0.3, robeBaseY - 0.12 + satchelSwing * 0.4);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(0.55, robeBaseY - 0.05 + satchelSwing * 0.45);
+      ctx.restore();
+    }
 
     ctx.fillStyle = gloveColor;
     ctx.beginPath();
@@ -6894,7 +7635,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.save();
       ctx.translate(0.08, -0.52);
       ctx.rotate(hatTilt * 0.4);
-      const brimWidth = robeWidth + 1.25 + stageRatio * 0.18;
+      const brimWidth = robeWidth + 0.98 + stageRatio * 0.14;
       ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.beginPath();
       ctx.ellipse(0.05, -1.7, brimWidth * 0.9, 0.5, 0, 0, Math.PI * 2);
@@ -6952,22 +7693,44 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     ctx.fillStyle = backGradient;
     ctx.fill();
 
+    const beltWidthBack = robeWidth * 0.92;
+    const beltHeightBack = 0.42;
+    const beltYBack = 0.92 + sashLift * 0.8;
+    const beltGradBack = ctx.createLinearGradient(-beltWidthBack, beltYBack - beltHeightBack, beltWidthBack, beltYBack + beltHeightBack);
+    beltGradBack.addColorStop(0, mixHexColors(sashColor, "#100806", 0.35));
+    beltGradBack.addColorStop(0.5, sashColor);
+    beltGradBack.addColorStop(1, mixHexColors(sashColor, "#e6c08a", 0.22));
+    ctx.fillStyle = beltGradBack;
+    ctx.beginPath();
+    ctx.moveTo(-beltWidthBack + 0.4, beltYBack - beltHeightBack / 2);
+    ctx.lineTo(beltWidthBack - 0.4, beltYBack - beltHeightBack / 2);
+    ctx.quadraticCurveTo(beltWidthBack, beltYBack, beltWidthBack - 0.4, beltYBack + beltHeightBack / 2);
+    ctx.lineTo(-beltWidthBack + 0.4, beltYBack + beltHeightBack / 2);
+    ctx.quadraticCurveTo(-beltWidthBack, beltYBack, -beltWidthBack + 0.4, beltYBack - beltHeightBack / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${0.1 + stageRatio * 0.05})`;
+    ctx.lineWidth = 0.1;
+    ctx.stroke();
+
     ctx.beginPath();
     ctx.fillStyle = mixHexColors(robeColor, "#24121f", 0.18);
     ctx.ellipse(0, robeBaseY - 0.08, robeWidth * (0.84 + satchelSwing * 0.04), 0.72 + satchelSwing * 0.04, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const strapGradient = ctx.createLinearGradient(-robeWidth, -1.2, robeWidth, robeBaseY + 0.5);
-    strapGradient.addColorStop(0, mixHexColors(strapColor, "#140904", 0.55));
-    strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.4));
-    ctx.fillStyle = strapGradient;
-    ctx.beginPath();
-    ctx.moveTo(-robeWidth + 0.4, -1.05 - sway * 0.2);
-    ctx.lineTo(-robeWidth + 1.0, -1.0 - sway * 0.2);
-    ctx.lineTo(robeWidth - 0.6, robeBaseY + 0.2 + satchelSwing * 0.4);
-    ctx.lineTo(robeWidth - 1.2, robeBaseY + 0.2 + satchelSwing * 0.4);
-    ctx.closePath();
-    ctx.fill();
+    if (showSatchel) {
+      const strapGradient = ctx.createLinearGradient(-robeWidth, -1.2, robeWidth, robeBaseY + 0.5);
+      strapGradient.addColorStop(0, mixHexColors(strapColor, "#140904", 0.55));
+      strapGradient.addColorStop(1, mixHexColors(strapColor, strapHighlight, 0.4));
+      ctx.fillStyle = strapGradient;
+      ctx.beginPath();
+      ctx.moveTo(-robeWidth + 0.4, -1.05 - sway * 0.2);
+      ctx.lineTo(-robeWidth + 1.0, -1.0 - sway * 0.2);
+      ctx.lineTo(robeWidth - 0.6, robeBaseY + 0.2 + satchelSwing * 0.4);
+      ctx.lineTo(robeWidth - 1.2, robeBaseY + 0.2 + satchelSwing * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.save();
     ctx.restore();
@@ -6986,7 +7749,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.save();
       ctx.translate(0, -0.48);
       ctx.rotate(hatTilt * 0.28);
-      const brimWidth = robeWidth + 1.28 + stageRatio * 0.14;
+      const brimWidth = robeWidth + 1.0 + stageRatio * 0.12;
       ctx.fillStyle = "rgba(0,0,0,0.55)";
       ctx.beginPath();
       ctx.ellipse(0, -1.62, brimWidth, 0.56, 0, 0, Math.PI * 2);
@@ -7364,6 +8127,10 @@ function drawPreySprite(prey, x, y) {
 function drawEnemySprite(enemy, offsetX, offsetY) {
   const x = enemy.x - offsetX;
   const y = enemy.y - offsetY;
+  if (enemy.isBoss) {
+    drawBossSprite(enemy, x, y);
+    return;
+  }
   const scale =
     enemy.drawScale ??
     (enemy.behaviour === "titan"
@@ -8238,6 +9005,26 @@ function drawSpellEffects(offsetX, offsetY) {
         ctx.beginPath();
         ctx.arc(0, 0, r * (0.4 + p), 0, Math.PI * 2);
         ctx.stroke();
+        break;
+      }
+      case "voidpulse": {
+        const p = effect.progress || 0;
+        const radius = effect.radius || VOID_PULSE_RADIUS;
+        ctx.globalCompositeOperation = "lighter";
+        const ringCount = 4;
+        for (let i = 0; i < ringCount; i += 1) {
+          const t = (p + i * 0.2) % 1;
+          const r = radius * (0.2 + t * 0.8);
+          ctx.strokeStyle = `rgba(194,140,255,${0.5 * (1 - t)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.fillStyle = `rgba(180,120,255,${0.25 * (1 - p)})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2);
+        ctx.fill();
         break;
       }
       case "shadowstep": {
@@ -10204,6 +10991,12 @@ function handleKeyDown(event) {
     case "3":
       useSpell(2);
       break;
+    case "4":
+      useSpell(3);
+      break;
+    case "5":
+      useSpell(4);
+      break;
     case " ":
     case "Enter":
       attack();
@@ -10407,10 +11200,20 @@ if (spellbookClose) {
   spellbookClose.addEventListener("click", () => closeSpellbookOverlay());
 }
 
+const guideSpellsBtn = document.getElementById("open-spells-from-guide");
+if (guideSpellsBtn) {
+  guideSpellsBtn.addEventListener("click", () => {
+    if (infoOverlay && !infoOverlay.classList.contains("info-overlay--hidden")) {
+      closeInfoOverlay(false);
+    }
+    openSpellbookOverlay();
+  });
+}
+
 if (spellSlotBuyBtn) {
   spellSlotBuyBtn.addEventListener("click", () => {
-    if (mineralCount < 100) return;
-    mineralCount -= 100;
+    if (mineralCount < 10) return;
+    mineralCount -= 10;
     spellSlots.push(null);
     starterSpells.push(SPELL_TYPES.find((s) => unlockedSpells.has(s.id))?.id || null);
     saveMineralCount();

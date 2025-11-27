@@ -1,12 +1,12 @@
-Arcane Run: Survival – Working Context
-======================================
+Arcane Hunger: Survival – Working Context
+========================================
 
 Core Systems Added/Changed
 --------------------------
 - Level progression, resized maps per level; start overlay (Start button) gates gameplay.
 - Navigation mesh/A* for enemy pathing; enemies slow/freeze aware; wall-safe pickup spawning.
 - Player: faster walk bob, dash via double-tap, blink/idle variants, richer sprite polish.
-- Minerals: gold deposits embedded in ground; mine with `M`; GOLD persists (localStorage). GOLD label in HUD/spell dialog. Purchase extra spell slot for 100 GOLD.
+- Minerals: gold deposits embedded in ground; mine with `M`; GOLD persists (localStorage). GOLD label in HUD/spell dialog. Purchase extra spell slot for 10 GOLD (default 5 slots).
 - Spellbook: dialog lists spells with runes, descriptions, locked/unlocked state; unlock costs 20 GOLD; pick starter spells per slot; unlocks/starter choices persist (localStorage). Spell drops only choose unlocked spells.
 - Sound: Web Audio SFX for attack/pickup/spell/dash/hurt/mining/level-up; background soft-bit music loop.
 - Share image: larger padding between stat labels/values; 600x315 card layout refreshed.
