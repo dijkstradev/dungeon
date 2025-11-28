@@ -1400,7 +1400,6 @@ function resetGame() {
   rebuildWorldState({ refillSpellSlots: true, keepCompanions: false, keepAggroFlags: false });
   if (bossLevels(state.level)) {
     spawnBossForLevel(state.level);
-    showAchievement(`Boss Level ${state.level}: defeat the boss to advance`);
     showBossBanner(`Boss Level ${state.level}: defeat the boss to advance`);
   } else {
     activeBoss = null;
@@ -1503,7 +1502,6 @@ function applyLevelAdvance(level) {
   repositionPlayerAtSpawn();
   rebuildWorldState({ refillSpellSlots: false, keepCompanions: true, keepAggroFlags: true });
   if (bossLevels(level)) {
-    showAchievement(`Boss Level ${level}: defeat the boss to advance`);
     showBossBanner(`Boss Level ${level}: defeat the boss to advance`);
     spawnBossForLevel(level);
   } else {
@@ -2059,7 +2057,6 @@ function spawnBossForLevel(level) {
   };
   enemies.push(boss);
   activeBoss = boss;
-  showAchievement(`Boss: ${template.name} — kill to finish level`);
   startBossMusic();
   return boss;
 }
@@ -4444,17 +4441,19 @@ function castChainLightningSpell() {
   const len = Math.hypot(facingX, facingY) || 1;
   const dirX = facingX / len;
   const dirY = facingY / len;
-  const coneCos = Math.cos(Math.PI / 2.25); // wider cone ~80°
 
   const targets = enemies
     .map((enemy) => {
       const dx = enemy.x - player.x;
       const dy = enemy.y - player.y;
       const dist = Math.hypot(dx, dy);
-      const dot = dist > 0 ? (dx * dirX + dy * dirY) / dist : -1;
-      return { enemy, dist, dot };
+      return { enemy, dist };
     })
-    .filter((entry) => entry.dist <= viewRange && entry.dot >= coneCos && hasLineOfSight(player.x, player.y, entry.enemy.x, entry.enemy.y))
+    .filter(
+      (entry) =>
+        entry.dist <= viewRange &&
+        hasLineOfSight(player.x, player.y, entry.enemy.x, entry.enemy.y),
+    )
     .sort((a, b) => a.dist - b.dist)
     .slice(0, maxTargets);
 
@@ -4487,8 +4486,14 @@ function castChainLightningSpell() {
 
   targets.forEach((entry, index) => {
     const dmg = player.damage * 1.4;
-    entry.enemy.health -= dmg;
-    spawnDamageNumber(entry.enemy.x, entry.enemy.y - entry.enemy.radius * 1.1, Math.round(dmg), "enemy");
+    const dealt = dealDamage(entry.enemy, dmg, "lightning");
+    entry.enemy.damageCooldown = 0;
+    spawnDamageNumber(
+      entry.enemy.x,
+      entry.enemy.y - entry.enemy.radius * 1.1,
+      Math.max(1, Math.round(dealt)),
+      "enemy",
+    );
     spellEffects.push({
       type: "chainlight",
       x: entry.enemy.x,
@@ -6759,7 +6764,7 @@ function drawPlayer(offsetX, offsetY) {
   const screenX = player.x - offsetX;
   const bob =
     player.isMoving && player.walkCycle
-      ? Math.sin(((player.walkCycle % 520) / 520) * Math.PI * 2) * 1.2
+      ? Math.sin(((player.walkCycle % 520) / 520) * Math.PI * 2) * 1.6
       : 0;
   const screenY = player.y - offsetY + bob;
   ctx.save();
@@ -6780,8 +6785,12 @@ function drawPlayer(offsetX, offsetY) {
 
   let orientation = "front";
   let facing = 1;
+  const isDiagonal = absFx > 0.38 && absFy > 0.38;
 
-  if (absFy >= absFx) {
+  if (isDiagonal) {
+    orientation = "side";
+    facing = fx >= 0 ? 1 : -1;
+  } else if (absFy >= absFx) {
     if (fy <= -0.2) {
       orientation = "back";
     } else if (fy >= 0.2) {
@@ -6795,17 +6804,25 @@ function drawPlayer(offsetX, offsetY) {
     facing = fx >= 0 ? 1 : -1;
   }
 
-  drawPlayerSprite(screenX, screenY, player.frame, orientation, facing, player.shootingTimer > 0);
+  drawPlayerSprite(screenX, screenY, player.frame, orientation, facing, player.shootingTimer > 0, {
+    diagonal: isDiagonal,
+    dirX: fx,
+    dirY: fy,
+  });
 }
 
-function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
-  const scale = 3.1;
+function drawPlayerSprite(x, y, frame, orientation, facing, shooting, moveInfo = {}) {
+  const scale = 3.25;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, scale);
   if (orientation === "side" && facing < 0) {
     ctx.scale(-1, 1);
   }
+
+  const diagMove = moveInfo && moveInfo.diagonal;
+  const moveDirX = (moveInfo && moveInfo.dirX) || 0;
+  const moveDirY = (moveInfo && moveInfo.dirY) || 0;
 
   const isSide = orientation === "side";
   const isBack = orientation === "back";
@@ -6815,9 +6832,10 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
   ctx.ellipse(0, 3.6, isSide ? 2.8 : 3.2, 1.4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  const stage = Math.min(player.mutationStage || 0, MAX_MUTATION_STAGE);
-  const stageRatio = stage / MAX_MUTATION_STAGE;
-  const mutationPhase = stage >= 18 ? 3 : stage >= 12 ? 2 : stage >= 6 ? 1 : 0;
+  // Lock the player look to the clean wizard palette (no mutation variants) to match the reference
+  const stage = 0;
+  const stageRatio = 0;
+  const mutationPhase = 0;
   const walkPhase = frame % 4;
 
   let robeColor;
@@ -6847,30 +6865,30 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
   switch (mutationPhase) {
     case 0:
-      robeColor = "#6f4a34";
-      robeHighlight = "#8c6646";
-      trimColor = "#e5cf9d";
-      sashColor = "#6b4026";
-      gloveColor = "#8b6441";
-      hatBase = "#cfa45a";
-      hatShadow = "#9d7541";
-      hatHighlight = "#f4d08c";
-      headColor = "#06050c";
-      faceGlowColor = "205, 230, 255";
-      faceGlowAlphaBase = 0.26;
-      faceGlowAlphaBonus = 0.16;
-      eyeColor = "#ffffff";
-      eyeGlowColor = "255, 255, 255";
+      robeColor = "#4a2d1c";
+      robeHighlight = "#7a4d2d";
+      trimColor = "#f2d59a";
+      sashColor = "#2f6ebe";
+      gloveColor = "#6b4a2e";
+      hatBase = "#c89b74";
+      hatShadow = "#9a6b46";
+      hatHighlight = "#f7d9a3";
+      headColor = "#050508";
+      faceGlowColor = "250, 236, 210";
+      faceGlowAlphaBase = 0.32;
+      faceGlowAlphaBonus = 0.18;
+      eyeColor = "#fefefe";
+      eyeGlowColor = "255, 247, 225";
       hornColor = "#d8c372";
       clawColor = "#6f4d2b";
       fangColor = "#ffe6c6";
       sparkleColor = "rgba(255, 248, 230, 0.9)";
       sparkleSecondaryColor = "rgba(247, 226, 160, 0.9)";
       sparkleAlphaBias = 0.26;
-      staffWoodColor = "#5b3b22";
+      staffWoodColor = "#5a3a26";
       staffCapColor = "#3f3279";
-      orbCoreColor = "#ffba26";
-      staffAuraStroke = "rgba(255,233,110,0.75)";
+      orbCoreColor = "#f6d66c";
+      staffAuraStroke = "rgba(255,225,140,0.8)";
       break;
     case 1:
       robeColor = "#4d56c8";
@@ -6965,6 +6983,8 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
   const satchelSwing = showSatchel ? player.satchelSwing || 0 : 0;
   const satchelPhase = showSatchel ? player.satchelPhase || 0 : 0;
   const motionIntensity = player.isMoving ? 1 : 0;
+  const castPhase = Math.max(0, Math.min(1, (player.shootingTimer || 0) / 200));
+  const castEase = Math.sin(castPhase * Math.PI);
 
   const faceGlowAlpha = (faceGlowAlphaBase + stageRatio * faceGlowAlphaBonus) * (0.82 + blinkEase * 0.4);
   const faceGlow = `rgba(${faceGlowColor}, ${faceGlowAlpha})`;
@@ -6974,19 +6994,34 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     Math.sin(animationTime * 0.005 + walkPhase + satchelPhase * 0.25) *
       (0.03 + motionIntensity * 0.02);
   const showHat = hatBase !== null;
-  const hatTattered = mutationPhase >= 2 && mutationPhase < 3;
-  const showHorns = mutationPhase >= 1;
-  const largeHorns = mutationPhase >= 2;
-  const showFangs = mutationPhase >= 2;
-  const showClaws = mutationPhase >= 1;
-  const backSpikes = mutationPhase >= 3;
+  const hatTattered = false;
+  const showHorns = false;
+  const largeHorns = false;
+  const showFangs = false;
+  const showClaws = false;
+  const backSpikes = false;
+
+  const stepPhase = ((player.walkCycle || 0) % 900) / 900 * Math.PI * 2;
+  const stepBob = Math.sin(stepPhase) * 0.14;
 
   const hatTilt =
-    (isAdjustingHat ? -0.22 * idleEase : 0) + (motionIntensity ? Math.sin(animationTime * 0.0024) * 0.04 : 0);
+    (isAdjustingHat ? -0.22 * idleEase : 0) +
+    (motionIntensity ? Math.sin(animationTime * 0.0024) * 0.04 : 0) -
+    castEase * 0.08 -
+    0.06 +
+    Math.sin(stepPhase) * 0.06 +
+    (diagMove ? (moveDirY < 0 ? -0.04 : 0.04) : 0);
   const headNod =
-    (isStretching ? -0.08 * idleEase : 0) + (motionIntensity ? Math.sin(animationTime * 0.004 + walkPhase) * 0.03 : 0);
+    (isStretching ? -0.08 * idleEase : 0) +
+    (motionIntensity ? Math.sin(animationTime * 0.004 + walkPhase) * 0.03 : 0) -
+    castEase * 0.12 +
+    Math.sin(stepPhase + Math.PI / 2) * 0.05 +
+    (diagMove ? (moveDirY < 0 ? -0.05 : 0.05) : 0);
   const torsoLean =
-    (isStretching ? -0.06 * idleEase : 0) + (motionIntensity ? Math.cos(animationTime * 0.003 + walkPhase) * 0.04 : 0);
+    (isStretching ? -0.06 * idleEase : 0) +
+    (motionIntensity ? Math.cos(animationTime * 0.003 + walkPhase) * 0.04 : 0) -
+    castEase * 0.1 +
+    (diagMove ? (moveDirX > 0 ? 0.05 : -0.05) : 0);
   const eyeSquint =
     (isAdjustingHat ? idleEase * 0.6 : 0) + (isStretching ? idleEase * 0.3 : 0) + motionIntensity * 0.1;
   const staffIdleRotation =
@@ -6996,19 +7031,37 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     (isStaffSpin ? 0.42 * idleEase : 0) +
     (isStretching ? 0.18 * idleEase : 0) +
     (motionIntensity ? Math.sin(animationTime * 0.003 + walkPhase) * 0.08 : 0);
-  const sashLift = Math.sin(animationTime * 0.004 + walkPhase) * (0.08 + motionIntensity * 0.04) + idleEase * 0.05;
-  const robeFlutter = Math.sin(animationTime * 0.004 + walkPhase) * (0.12 + motionIntensity * 0.06) + idleEase * 0.05;
+  const sashLift =
+    Math.sin(animationTime * 0.004 + walkPhase) * (0.08 + motionIntensity * 0.04) +
+    idleEase * 0.05 +
+    castEase * 0.08;
+  const robeFlutter =
+    Math.sin(animationTime * 0.004 + walkPhase) * (0.18 + motionIntensity * 0.1) +
+    idleEase * 0.06 +
+    castEase * 0.25;
+  const cloakSway = robeFlutter + Math.sin(animationTime * 0.002) * 0.08 + stepBob * 0.6;
+  const hemLift = Math.max(0, motionIntensity * 0.08 + castEase * 0.12);
 
   const robeWidth = isSide ? 2.55 : 2.8;
   const robeBaseY = 3.15;
   const belly = Math.sin((walkPhase + (shooting ? 0.5 : 0)) * (Math.PI / 2)) * 0.12;
   const sway = Math.sin(animationTime * 0.0025) * 0.12 + torsoLean;
   const hastePulse = player.speedBoostTimer > 0 ? 0.2 : 0;
-  const staffGlowBase = 0.32 + stageRatio * 0.18 + mutationPhase * 0.08 + hastePulse + idleEase * 0.08;
+  const staffGlowBase =
+    0.32 +
+    stageRatio * 0.18 +
+    mutationPhase * 0.08 +
+    hastePulse +
+    idleEase * 0.08 +
+    castEase * 0.35;
   const staffGlow = shooting ? staffGlowBase + 0.32 : staffGlowBase;
   const staffShift = shooting ? 0.55 + mutationPhase * 0.08 : 0.1 + mutationPhase * 0.05;
   const staffBaseX = orientation === "back" ? 2.0 : orientation === "side" ? 2.35 : 2.75;
-  const staffBaseY = (orientation === "back" ? -1.6 : -1.4) - staffIdleLift;
+  const staffBaseY =
+    (orientation === "back" ? -1.6 : -1.4) -
+    staffIdleLift -
+    castEase * 0.5 +
+    stepBob * 0.25;
   const strapColor = mutationPhase >= 2 ? "#5e3c8d" : "#5e3b2a";
   const strapHighlight = mutationPhase >= 2 ? "#b79cf1" : "#cfb483";
   const satchelColor = mutationPhase >= 2 ? "#3b235a" : "#5a3927";
@@ -7212,12 +7265,12 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
   ctx.save();
 
-  const leftLift = Math.max(0, Math.sin(walkPhase * (Math.PI / 2))) * 0.45;
-  const rightLift = Math.max(0, Math.sin(((walkPhase + 2) % 4) * (Math.PI / 2))) * 0.45;
-  const leftSwing = Math.cos(walkPhase * (Math.PI / 2)) * 0.32;
-  const rightSwing = Math.cos(((walkPhase + 2) % 4) * (Math.PI / 2)) * 0.32;
-  const bootColor = stage >= 10 ? "#2a2441" : "#342a44";
-  const soleColor = stage >= 10 ? "#4a3f6b" : "#45385c";
+  const leftLift = Math.max(0, Math.sin(stepPhase)) * 0.6;
+  const rightLift = Math.max(0, Math.sin(stepPhase + Math.PI)) * 0.6;
+  const leftSwing = Math.cos(stepPhase) * 0.38;
+  const rightSwing = Math.cos(stepPhase + Math.PI) * 0.38;
+  const bootColor = "#352c3e";
+  const soleColor = "#463d4c";
 
   const drawFeetFront = () => {
     ctx.fillStyle = bootColor;
@@ -7277,7 +7330,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
       ctx.beginPath();
       ctx.moveTo(-robeWidth, -1.1 - sway);
       ctx.quadraticCurveTo(-robeWidth - 0.6, 0.6 + belly, -robeWidth * 0.62, robeBaseY - 0.15);
-      ctx.quadraticCurveTo(0, robeBaseY + 0.35 + robeFlutter * 0.15, robeWidth * 0.62, robeBaseY - 0.15);
+      ctx.quadraticCurveTo(0, robeBaseY + 0.35 + cloakSway * 0.15 + hemLift, robeWidth * 0.62, robeBaseY - 0.15);
       ctx.quadraticCurveTo(robeWidth + 0.6, 0.6 + belly, robeWidth, -1.1 - sway);
       ctx.quadraticCurveTo(0, -2.2 - sway * 0.35, -robeWidth, -1.1 - sway);
       ctx.closePath();
@@ -7285,8 +7338,8 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     const tracePanelShape = () => {
       ctx.beginPath();
       ctx.moveTo(-robeWidth * 0.6, -0.8 - sway * 0.5);
-      ctx.quadraticCurveTo(-robeWidth * 0.4, 0.9 + belly * 0.6, -0.4, 2.6 + robeFlutter * 0.25);
-      ctx.quadraticCurveTo(0, 2.95 + robeFlutter * 0.3, 0.4, 2.6 + robeFlutter * 0.25);
+      ctx.quadraticCurveTo(-robeWidth * 0.4, 0.9 + belly * 0.6, -0.4, 2.6 + cloakSway * 0.25 + hemLift);
+      ctx.quadraticCurveTo(0, 2.95 + cloakSway * 0.3 + hemLift, 0.4, 2.6 + cloakSway * 0.25 + hemLift);
       ctx.quadraticCurveTo(robeWidth * 0.4, 0.9 + belly * 0.6, robeWidth * 0.6, -0.8 - sway * 0.5);
       ctx.quadraticCurveTo(0, -1.8 - sway * 0.3, -robeWidth * 0.6, -0.8 - sway * 0.5);
       ctx.closePath();
@@ -7328,7 +7381,7 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
 
     const beltWidth = robeWidth * 0.95;
     const beltHeight = 0.45;
-    const beltY = 0.95 + sashLift;
+    const beltY = 0.95 + sashLift - stepBob * 0.2;
     const beltGradient = ctx.createLinearGradient(-beltWidth, beltY - beltHeight, beltWidth, beltY + beltHeight);
     beltGradient.addColorStop(0, mixHexColors(sashColor, "#100806", 0.35));
     beltGradient.addColorStop(0.5, sashColor);
@@ -7518,9 +7571,9 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     const traceSideShape = () => {
       ctx.beginPath();
       ctx.moveTo(-robeWidth + 0.5, -1.2 - sway);
-      ctx.quadraticCurveTo(-robeWidth - 0.2, 1.2 + belly, -1.0, robeBaseY);
-      ctx.quadraticCurveTo(0.55, robeBaseY + 0.55, 1.95, robeBaseY);
-      ctx.quadraticCurveTo(2.6, 0.9 + belly * 0.6, 2.35, -0.35);
+      ctx.quadraticCurveTo(-robeWidth - 0.2, 1.2 + belly, -1.0, robeBaseY + hemLift * 0.8);
+      ctx.quadraticCurveTo(0.55, robeBaseY + 0.55 + cloakSway * 0.12 + hemLift, 1.95, robeBaseY + hemLift * 0.8);
+      ctx.quadraticCurveTo(2.6, 0.9 + belly * 0.6, 2.35, -0.35 - cloakSway * 0.08);
       ctx.quadraticCurveTo(2.45, -1.4, -robeWidth + 0.5, -1.2 - sway);
       ctx.closePath();
     };
@@ -7675,8 +7728,8 @@ function drawPlayerSprite(x, y, frame, orientation, facing, shooting) {
     const traceBackShape = () => {
       ctx.beginPath();
       ctx.moveTo(-robeWidth, -1.05 - sway);
-      ctx.quadraticCurveTo(-robeWidth - 0.55, 0.7 + belly, -robeWidth * 0.6, robeBaseY - 0.12);
-      ctx.quadraticCurveTo(0, robeBaseY + 0.32, robeWidth * 0.6, robeBaseY - 0.12);
+      ctx.quadraticCurveTo(-robeWidth - 0.55, 0.7 + belly, -robeWidth * 0.6, robeBaseY - 0.12 + hemLift * 0.8);
+      ctx.quadraticCurveTo(0, robeBaseY + 0.32 + cloakSway * 0.12 + hemLift, robeWidth * 0.6, robeBaseY - 0.12 + hemLift * 0.8);
       ctx.quadraticCurveTo(robeWidth + 0.55, 0.7 + belly, robeWidth, -1.05 - sway);
       ctx.quadraticCurveTo(0, -2.3 - sway * 0.35, -robeWidth, -1.05 - sway);
       ctx.closePath();

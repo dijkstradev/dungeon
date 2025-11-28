@@ -225,19 +225,21 @@ body {
 
 .boss-banner {
   position: absolute;
-  top: 18px;
+  top: 70px; /* sits just below the level survived banner */
   left: 50%;
-  transform: translateX(-50%);
-  padding: 10px 14px;
-  border: 2px solid #f9d64c;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #f9d64c;
-  font-size: 12px;
-  letter-spacing: 0.4px;
+  transform: translate(-50%, 0);
+  padding: 14px 24px;
+  border-radius: 8px;
+  font-size: 0.55rem;
+  letter-spacing: 1.2px;
+  color: #ffffff;
+  background: rgba(10, 10, 10, 0.92);
+  border: 2px solid rgba(244, 197, 64, 0.8);
+  text-shadow: 0 2px 0 rgba(12, 12, 12, 0.7);
   display: none;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 10px 16px rgba(0, 0, 0, 0.4);
   pointer-events: none;
+  z-index: 19;
 }
 
 #minimap {

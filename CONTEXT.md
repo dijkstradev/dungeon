@@ -1,42 +1,37 @@
-Arcane Hunger: Survival – Working Context
-========================================
+Arcane Hunger: Survival – Working Context (current)
+===================================================
 
-Core Systems Added/Changed
---------------------------
-- Level progression, resized maps per level; start overlay (Start button) gates gameplay.
-- Navigation mesh/A* for enemy pathing; enemies slow/freeze aware; wall-safe pickup spawning.
-- Player: faster walk bob, dash via double-tap, blink/idle variants, richer sprite polish.
-- Minerals: gold deposits embedded in ground; mine with `M`; GOLD persists (localStorage). GOLD label in HUD/spell dialog. Purchase extra spell slot for 10 GOLD (default 5 slots).
-- Spellbook: dialog lists spells with runes, descriptions, locked/unlocked state; unlock costs 20 GOLD; pick starter spells per slot; unlocks/starter choices persist (localStorage). Spell drops only choose unlocked spells.
-- Sound: Web Audio SFX for attack/pickup/spell/dash/hurt/mining/level-up; background soft-bit music loop.
-- Share image: larger padding between stat labels/values; 600x315 card layout refreshed.
-
-Implemented Spells (behavior + visuals)
----------------------------------------
-- Blast (Arc Blast), Heal (Sanctify), Haste (Swiftstep), Terrashield (root + armor + burst).
-- Flame Orb: homing fireball (LOS-gated), stops on walls, explodes with layered flame FX.
-- Frost Nova: radial freeze/slow, shard damage, layered icy rings/sparkles.
-- Time Warp: large AoE slow on enemies, player speed buff; layered warp rings/sparkles.
-- Unlimeted Power: forward cone zaps multiple foes with jittery bolts.
-
-New Spells Defined (metadata only, not yet implemented)
--------------------------------------------------------
-- Offense/utility/defense placeholders: flameorb, frostnova, timewarp, chainlightning (implemented), plus emberstorm, meteordrop, venomtide, shadowstep, stonewall, galeslice, radiantaegis, wardingroots, aurastride, starlance, voidpulse, mirrorveil, glacialspear, stormbarrier, lifesurge, arcburst, mistveil, gravitywell, emberdash, thornburst, chronolock, soulflare, wardbubble, echoorb. All have runes/colors/labels/descriptions for spellbook/unlocks.
-
-Enemies/Prey
-------------
-- Enemies gain hunger/LOS-based prey hunting; pathfinding via nav mesh; slows/freeze fields.
-- Companions/prey: hunger, grazing on grass; sparkles/footsteps.
-- Aggro unlock per variant persists across level transitions.
-
-Environment/Visuals
+Core Systems / Loop
 -------------------
-- Gold deposits: multi-facet embedded nuggets with close sparkles; no shadow. Minerals called GOLD.
-- Map generator: rooms + corridors; central chamber; pickup spawns avoid walls/corridors.
-- Minimap blinks for mana/health; HUD shows GOLD.
+- Level progression with map growth; start overlay gates play. Navigation mesh for enemies (LOS-aware, slows/freezes) and wall-safe pickup spawning.
+- Player: dash (double-tap), blink/idle variants, brighter palette; GOLD persists (localStorage). Default 5 spell slots; extra slot costs 10 GOLD; unlock spells for 20 GOLD (unlocks gate spell drops and starters).
+- Audio: SFX for attacks/pickups/spells/dash/hurt/mining/level-up; layered background loop; boss fights use a distinct track.
+- Share image: refreshed 600x315 card and padding.
+
+Visual Pass
+-----------
+- World lightened: brighter/warmer floors and walls, softer outlines/shadows; sprites and bosses have stronger highlights, glow/motes, and chibi detailing for readability.
+- Boss bars now float over bosses; bosses have richer magical motifs (halos, runes, shards).
+
+Spells Implemented
+------------------
+- Core: Arc Blast, Sanctify, Swiftstep, Terrashield.
+- Offensive/utility: Flame Orb, Frost Nova, Time Warp, Unlimeted Power, Emberstorm, Meteor Drop, Venom Tide, Shadow Step, Stonewall, Gale Slice, Radiant Aegis, Warding Roots, Aura Stride, Star Lance, Void Pulse.
+- Metadata-only (not active yet): Mirror Veil, Glacial Spear, Storm Barrier, Life Surge, Arc Burst, Mist Veil, Gravity Well, Ember Dash, Thorn Burst, Chrono Lock, Soul Flare, Ward Bubble, Echo Orb.
+
+Boss System
+-----------
+- Boss levels at 3/6/9/12; boss spawns at level start while normal enemies still spawn. Level ends only when the boss dies.
+- Four bosses (Ember Colossus, Frost Warden, Void Marrow, Stone Tyrant): very large, high HP, unique magical/chibi visuals and varied attacks (dashes, flame wake, frost nova + shards, void pull/beam, stone spikes/charge).
+- Rewards: staff +3 levels, full health/mana on boss kill. Boss music during fights; achievements/banner announce boss levels.
+
+Enemies/Prey/Companions
+-----------------------
+- Enemies use hunger/LOS-based prey hunting; aggro flags persist; titan-style lunge/dash logic.
+- Prey/companions have hunger/grazing; companions can follow across levels.
+- Minimap blinks for mana/health; GOLD pockets are multi-faceted; pickup spawning respects walls/corridors.
 
 Known Gaps / TODOs
 ------------------
-- Extra spells (besides Flame Orb/Frost Nova/Time Warp/Unlimeted Power + base four) have no mechanics yet.
-- Mineral spawn visuals could be further tuned; verify LOS/dash/walk bob interactions.
-- Spell unlock flow uses localStorage; no server sync.
+- Placeholder spells above still need mechanics.
+- Persistence is local only (no sync).
